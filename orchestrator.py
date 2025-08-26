@@ -11,7 +11,7 @@ from tools.scryfall_api import ScryfallAPI
 from models.evaluation import EvaluationResult, CardScore, LightweightEvaluationResult
 from models.search import SearchQuery
 from models.card import Card
-from config import MAX_SEARCH_LOOPS, ENABLE_PARALLEL_EVALUATION, EVALUATION_BATCH_SIZE, TOP_CARDS_TO_DISPLAY
+from config import MAX_SEARCH_LOOPS, ENABLE_PARALLEL_EVALUATION, EVALUATION_BATCH_SIZE, TOP_CARDS_TO_DISPLAY, ENABLE_FULL_PAGINATION
 
 
 def format_time_elapsed(start_time: float) -> str:
@@ -101,7 +101,11 @@ class SearchOrchestrator:
                 feedback = "No cards found with this query. Try different search terms or broader criteria."
                 continue
             
-            print(f"✅ Found {len(search_result.cards)} cards")
+            if ENABLE_FULL_PAGINATION:
+                pagination_info = f" (paginated from {search_result.total_cards} total available)" if search_result.total_cards > len(search_result.cards) else ""
+                print(f"✅ Found {len(search_result.cards)} cards{pagination_info}")
+            else:
+                print(f"✅ Found {len(search_result.cards)} cards")
             
             # Filter out already-evaluated cards and get new cards to evaluate
             print(f"\n⚡ STEP 3: Cache Analysis")

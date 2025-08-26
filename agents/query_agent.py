@@ -218,7 +218,7 @@ Feel free to check for relevant tags when they could improve search results for 
 
 
 @query_agent.tool
-async def search_similar_tags(ctx: RunContext[QueryAgentDeps], guess_tags: List[str]) -> List[TagSuggestion]:
+async def search_similar_tags(ctx: RunContext[QueryAgentDeps], guess_tags: List[str]) -> List[str]:
     """
     Find tags similar to your guesses using fuzzy matching.
     
@@ -226,7 +226,7 @@ async def search_similar_tags(ctx: RunContext[QueryAgentDeps], guess_tags: List[
         guess_tags: List of tag guesses to find similar matches for
         
     Returns:
-        List of similar tags with relevance scores
+        List of valid tag names (strings only) sorted by relevance
     """
     return ctx.deps.tag_search.find_similar_tags(guess_tags)
 

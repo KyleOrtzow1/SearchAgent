@@ -7,9 +7,12 @@
 ## Feedback System Improvements
 
 ## Search Result Improvements
-- [ ] Implement pagination to return all cards matching a query instead of being limited to ~175 cards (Scryfall API limitation) - add ability to fetch complete result sets
+
+## Query Agent Improvements
+- [ ] Improve color identity understanding - query agent should understand that color identity (id:) means cards that fit "under" a commander of that color (e.g., id:white includes both white cards and colorless cards)
 
 ## Completed
+- [X] Implement pagination to return all cards matching a query instead of being limited to ~175 cards (Scryfall API limitation) - add ability to fetch complete result sets
 - [X] Extract stop loop confidence threshold to config.py so it can be changed on the fly (currently hardcoded as `< 6` in evaluation logic)
 - [X] Replace hardcoded text extraction feedback aggregation with LLM-based feedback synthesis - take all batch feedback and use LLM to generate final combined feedback instead of keyword matching
 - [X] Fix query agent tag usage - ensure found tags are actually used in `otag:{tag}` format in searches (currently finding tags but not using them)

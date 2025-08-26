@@ -18,3 +18,7 @@ TOP_CARDS_TO_DISPLAY = 15  # Number of highest scoring cards to show in final re
 
 # Search continuation settings
 STOP_LOOP_CONFIDENCE_THRESHOLD = 6  # Minimum average score to stop search loop (1-10 scale)
+
+# Pagination settings
+ENABLE_FULL_PAGINATION = True  # Whether to fetch all available cards (can be slow for large result sets)
+MAX_PAGES_TO_FETCH = 2  # Maximum number of pages to fetch when pagination is enabled

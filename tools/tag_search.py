@@ -27,7 +27,7 @@ class TagSearchTool:
             for tag in tags:
                 self.flat_tags.append((tag, category))
     
-    def find_similar_tags(self, guess_tags: List[str], max_results: int = 10) -> List[TagSuggestion]:
+    def find_similar_tags(self, guess_tags: List[str], max_results: int = 10) -> List[str]:
         """
         Find tags similar to the provided guesses using fuzzy matching
         
@@ -36,9 +36,9 @@ class TagSearchTool:
             max_results: Maximum number of suggestions to return
             
         Returns:
-            List of TagSuggestion objects sorted by relevance score
+            List of tag names (strings only) sorted by relevance score
         """
-        suggestions = []
+        tag_scores = []
         
         for guess in guess_tags:
             # Calculate fuzzy match scores for all tags
@@ -48,18 +48,14 @@ class TagSearchTool:
                 
                 # Only include matches above a threshold
                 if score > 60:
-                    suggestions.append(TagSuggestion(
-                        tag=tag,
-                        score=score / 100.0,  # Normalize to 0-1
-                        category=category
-                    ))
+                    tag_scores.append((tag, score))
         
         # Sort by score descending and remove duplicates
         seen_tags = set()
-        unique_suggestions = []
-        for suggestion in sorted(suggestions, key=lambda x: x.score, reverse=True):
-            if suggestion.tag not in seen_tags:
-                seen_tags.add(suggestion.tag)
-                unique_suggestions.append(suggestion)
+        unique_tags = []
+        for tag, score in sorted(tag_scores, key=lambda x: x[1], reverse=True):
+            if tag not in seen_tags:
+                seen_tags.add(tag)
+                unique_tags.append(tag)
         
-        return unique_suggestions[:max_results]
+        return unique_tags[:max_results]
