@@ -14,13 +14,32 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.card import Card
 from models.evaluation import EvaluationResult, CardScore, LightweightEvaluationResult, LightweightAgentResult
-from config import ENABLE_PARALLEL_EVALUATION, EVALUATION_BATCH_SIZE, TOP_CARDS_TO_DISPLAY
+from config import ENABLE_PARALLEL_EVALUATION, EVALUATION_BATCH_SIZE, TOP_CARDS_TO_DISPLAY, STOP_LOOP_CONFIDENCE_THRESHOLD, MAX_SEARCH_LOOPS
 
 
 # Create the evaluation agent with lightweight output
 lightweight_evaluation_agent = Agent(
     model=OpenAIResponsesModel('gpt-5-mini'),
     output_type=LightweightAgentResult
+)
+
+# Create feedback synthesis agent for combining batch feedback
+feedback_synthesis_agent = Agent(
+    model=OpenAIResponsesModel('gpt-5-mini'),
+    output_type=str,
+    system_prompt="""You are an expert at synthesizing multiple feedback messages into clear, actionable recommendations.
+
+Your task is to combine feedback from multiple card evaluation batches into a single coherent recommendation for improving MTG card search queries.
+
+Guidelines:
+1. Synthesize all the feedback into 1-2 concise sentences
+2. Focus on the most common or important suggestions
+3. Be specific about what changes would improve the search
+4. Use MTG terminology appropriately
+5. Avoid redundant or conflicting advice
+6. Prioritize actionable suggestions over general statements
+
+Return only the synthesized feedback text - no introduction or explanation."""
 )
 
 
@@ -104,6 +123,62 @@ class EvaluationAgent:
         
         return "\n".join(prompt_parts)
     
+    async def _synthesize_feedback(
+        self,
+        batch_feedbacks: List[str],
+        combined_average: float,
+        total_cards: int,
+        has_insufficient_cards: bool
+    ) -> str:
+        """
+        Use LLM to synthesize feedback from multiple batches into coherent recommendations
+        
+        Args:
+            batch_feedbacks: List of feedback strings from individual batches
+            combined_average: Combined average score from all batches
+            total_cards: Total number of cards found in search
+            has_insufficient_cards: Whether we have fewer than the desired number of cards
+            
+        Returns:
+            Synthesized feedback string
+        """
+        if not batch_feedbacks:
+            if has_insufficient_cards:
+                return f"Found only {total_cards} cards but need {TOP_CARDS_TO_DISPLAY}. Try broader search terms or different criteria to find more relevant cards."
+            else:
+                return "Try different search terms or broader criteria to find more relevant cards."
+        
+        # Build prompt for feedback synthesis
+        prompt_parts = [
+            f"Current search context:",
+            f"- Average relevance score: {combined_average:.1f}/10",
+            f"- Cards found: {total_cards} (need {TOP_CARDS_TO_DISPLAY})",
+            f"- Cards insufficient: {'Yes' if has_insufficient_cards else 'No'}",
+            "",
+            "Feedback from evaluation batches:"
+        ]
+        
+        for i, feedback in enumerate(batch_feedbacks, 1):
+            prompt_parts.append(f"{i}. {feedback}")
+        
+        prompt_parts.extend([
+            "",
+            "Synthesize this feedback into clear, actionable recommendations for improving the MTG card search query."
+        ])
+        
+        prompt = "\n".join(prompt_parts)
+        
+        try:
+            result = await feedback_synthesis_agent.run(prompt)
+            return result.output
+        except Exception as e:
+            # Fallback to simple aggregation if LLM fails
+            print(f"⚠️ Feedback synthesis failed: {e}")
+            if has_insufficient_cards:
+                return f"Found only {total_cards} cards but need {TOP_CARDS_TO_DISPLAY}. Try broader search terms or different criteria to find more relevant cards."
+            else:
+                return f"Average relevance is {combined_average:.1f}/10. Try different search terms or broader criteria to find more relevant cards."
+
     def _calculate_metrics(
         self,
         agent_result: LightweightAgentResult,
@@ -127,7 +202,7 @@ class EvaluationAgent:
         
         # Check if we need to continue searching based on score OR insufficient total card count
         has_insufficient_cards = total_cards < TOP_CARDS_TO_DISPLAY
-        should_continue = (avg_score < 6 or has_insufficient_cards) and iteration_count < 5
+        should_continue = (avg_score < STOP_LOOP_CONFIDENCE_THRESHOLD or has_insufficient_cards) and iteration_count < MAX_SEARCH_LOOPS
         
         return avg_score, should_continue
     
@@ -158,7 +233,7 @@ class EvaluationAgent:
             iteration_count=iteration_count
         )
     
-    def _combine_batch_results(
+    async def _combine_batch_results(
         self,
         batch_results: List[LightweightEvaluationResult],
         total_cards: int,
@@ -190,39 +265,22 @@ class EvaluationAgent:
         
         # Determine if search should continue based on combined average OR insufficient total card count
         has_insufficient_cards = total_cards < TOP_CARDS_TO_DISPLAY
-        should_continue = (combined_average < 6 or has_insufficient_cards) and iteration_count < 5
+        should_continue = (combined_average < STOP_LOOP_CONFIDENCE_THRESHOLD or has_insufficient_cards) and iteration_count < MAX_SEARCH_LOOPS
         
-        # Generate combined feedback from all batches if needed
+        # Generate combined feedback from all batches if needed using LLM synthesis
         feedback = None
         if should_continue:
             # Collect all non-empty feedback from individual batches
             batch_feedbacks = [result.feedback_for_query_agent for result in batch_results 
                              if result.feedback_for_query_agent and result.feedback_for_query_agent.strip()]
             
-            low_scores = [score for score in all_scores if score < 6]
-            
-            if has_insufficient_cards:
-                feedback = f"Found only {total_cards} cards but need {TOP_CARDS_TO_DISPLAY}. Try broader search terms or different criteria to find more relevant cards."
-            elif len(low_scores) > len(all_scores) * 0.5:  # If more than 50% are low scored
-                feedback = f"Average relevance is {combined_average:.1f}/10. "
-                if batch_feedbacks:
-                    # Aggregate unique suggestions from batches
-                    unique_suggestions = set()
-                    for batch_feedback in batch_feedbacks:
-                        # Extract suggestion keywords from each batch feedback
-                        if "broader" in batch_feedback.lower():
-                            unique_suggestions.add("broader search terms")
-                        if "different" in batch_feedback.lower():
-                            unique_suggestions.add("different criteria")
-                        if "more specific" in batch_feedback.lower():
-                            unique_suggestions.add("more specific terms")
-                    
-                    if unique_suggestions:
-                        feedback += f"Try {', '.join(unique_suggestions)} to find more relevant cards."
-                    else:
-                        feedback += "Try different search terms or broader criteria to find more relevant cards."
-                else:
-                    feedback += "Try different search terms or broader criteria to find more relevant cards."
+            # Use LLM-based feedback synthesis instead of keyword matching
+            feedback = await self._synthesize_feedback(
+                batch_feedbacks=batch_feedbacks,
+                combined_average=combined_average,
+                total_cards=total_cards,
+                has_insufficient_cards=has_insufficient_cards
+            )
         
         return LightweightEvaluationResult(
             scored_cards=all_scored_cards,
@@ -518,7 +576,7 @@ class EvaluationAgent:
             print(f"🚀 Estimated time saved: {time_saved:.1f}s (vs ~{estimated_sequential:.1f}s sequential)")
         
         # Combine batch results using helper
-        return self._combine_batch_results(
+        return await self._combine_batch_results(
             batch_results=batch_results,
             total_cards=total_cards,
             iteration_count=iteration_count

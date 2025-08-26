@@ -15,3 +15,6 @@ EVALUATION_BATCH_SIZE = 10  # Cards per batch for parallel processing
 
 # Results display settings
 TOP_CARDS_TO_DISPLAY = 15  # Number of highest scoring cards to show in final results
+
+# Search continuation settings
+STOP_LOOP_CONFIDENCE_THRESHOLD = 6  # Minimum average score to stop search loop (1-10 scale)

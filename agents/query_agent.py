@@ -191,14 +191,29 @@ You may nest conditions inside parentheses () to group them together.
 * !"Lightning Bolt" unique:prints — Every printing of Lightning Bolt.  
 * f:modern order:rarity direction:asc — Modern legal cards sorted by rarity, commons first.
 
+## **Oracle Tags (otag: keyword)**
+
+Oracle tags are functional categories that group cards by their gameplay mechanics or themes. They are ONLY used with the otag:{tag name} format in Scryfall queries.
+
+Tags are particularly useful for finding cards that belong to specific functional categories without relying on text matching in oracle text. For example:
+* otag:removal — Cards that remove permanents or creatures
+* otag:counterspell — Cards that counter spells
+* otag:ramp — Cards that accelerate mana production
+* otag:card-draw — Cards that draw additional cards
+
+Tags complement text searches but serve different purposes:
+- Use tags (otag:) for functional categories and deck archetypes
+- Use oracle text (o:) for specific wording or abilities
+- Both methods have their place and should be used accordingly
+
 When converting requests:
-1. IMPORTANT: Only use tools if absolutely necessary. Most requests can be handled with your extensive Scryfall knowledge.
-2. Use search_similar_tags tool ONLY if you're unsure about a specific tag name - and only once
-3. Be efficient - avoid repeated tool calls
+1. Consider if the request involves functional categories that might have tags (removal, counterspells, ramp, etc.)
+2. Use search_similar_tags tool when you think tags might be relevant but aren't sure of exact tag names
+3. Use otag:{tag name} format for any tags you include in queries
 4. Be precise with syntax - follow the examples above
 5. Return a SearchQuery with the final query and explanation
 
-CRITICAL: Minimize tool usage. Use your knowledge first, tools only when essential."""
+Feel free to check for relevant tags when they could improve search results for functional categories."""
 )
 
 
@@ -256,9 +271,9 @@ class QueryAgent:
             prompt_parts.append(f"Feedback from evaluation: {feedback}")
         
         prompt_parts.append(
-            "IMPORTANT: Use your extensive Scryfall knowledge to create the query directly. "
-            "Only use the search_similar_tags tool if absolutely necessary for tag matching. "
-            "Most queries can be created without any tools. "
+            "Use your Scryfall knowledge to create the query. "
+            "Consider if the request involves functional categories that might benefit from tags - "
+            "if so, use the search_similar_tags tool to find relevant tags and include them with otag: format. "
             "Return a SearchQuery with the final query string and explanation."
         )
         
