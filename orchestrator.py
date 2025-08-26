@@ -209,13 +209,13 @@ class SearchOrchestrator:
         cards: List[Card]
     ) -> EvaluationResult:
         """Convert lightweight evaluation result back to full result using card data"""
-        # Create a lookup dict for cards by name
-        card_lookup = {card.name: card for card in cards}
+        # Create a lookup dict for cards by ID
+        card_lookup = {card.id: card for card in cards}
         
         # Convert lightweight scores to full scores
         full_scored_cards = []
         for lightweight_score in lightweight_result.scored_cards:
-            card = card_lookup.get(lightweight_score.name)
+            card = card_lookup.get(lightweight_score.card_id)
             if card:
                 full_score = CardScore(
                     card=card,

@@ -74,7 +74,7 @@ class EvaluationAgent:
         # Build card summaries
         card_summaries = []
         for i, card in enumerate(cards, 1):
-            card_info = f"{i}. {card.name} ({card.mana_cost or 'No cost'}) - {card.type_line}"
+            card_info = f"{i}. {card.name} (ID: {card.id}) ({card.mana_cost or 'No cost'}) - {card.type_line}"
             if card.oracle_text:
                 card_info += f" | {card.oracle_text}"
             card_summaries.append(card_info)
@@ -104,7 +104,7 @@ class EvaluationAgent:
             "Score 1-3: Not relevant, Score 4-6: Somewhat relevant, Score 7-10: Highly relevant",
             "",
             "Return a LightweightAgentResult with:",
-            "- scored_cards: List with ONLY name (string), score (integer 1-10), and reasoning (string) for each card",
+            "- scored_cards: List with card_id (string), name (string), score (integer 1-10), and reasoning (string) for each card",
             f"- feedback_for_query_agent: If scores are low OR fewer than {TOP_CARDS_TO_DISPLAY} total cards found (currently {total_cards} total), provide specific suggestions for broader search terms",
             ""
         ])
@@ -113,13 +113,14 @@ class EvaluationAgent:
         if batch_info:
             prompt_parts.extend([
                 "CRITICAL: Every scored_card MUST have exactly these fields:",
+                "  - card_id: string (Scryfall card ID)",
                 "  - name: string (card name)",
                 "  - score: integer between 1 and 10",  
                 "  - reasoning: string (why this score)",
                 ""
             ])
         
-        prompt_parts.append("DO NOT include full card data - just name, score, and reasoning!")
+        prompt_parts.append("DO NOT include full card data - just card_id, name, score, and reasoning!")
         
         return "\n".join(prompt_parts)
     
