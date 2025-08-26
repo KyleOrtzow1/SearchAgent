@@ -1,7 +1,7 @@
 # MTG Search Agent - TODO List
 
 ## Bug Fixes
-- [ ] Change caching to track by card ID instead of name - modify card caching system to use Scryfall card IDs instead of card names for better accuracy and handling of cards with same names
+- [X] Change caching to track by card ID instead of name - modify card caching system to use Scryfall card IDs instead of card names for better accuracy and handling of cards with same names
 
 ## Configuration Improvements
 

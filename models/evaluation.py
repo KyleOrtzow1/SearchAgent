@@ -12,6 +12,7 @@ class CardScore(BaseModel):
 
 class LightweightCardScore(BaseModel):
     """Lightweight card score with only essential data for evaluation"""
+    card_id: str = Field(description="Scryfall card ID")
     name: str = Field(description="Card name")
     score: int = Field(ge=1, le=10, description="Relevance score from 1-10")
     reasoning: Optional[str] = None
