@@ -16,6 +16,13 @@ from models.card import Card
 from models.evaluation import EvaluationResult, CardScore, LightweightEvaluationResult, LightweightAgentResult
 from config import ENABLE_PARALLEL_EVALUATION, EVALUATION_BATCH_SIZE, TOP_CARDS_TO_DISPLAY, STOP_LOOP_CONFIDENCE_THRESHOLD, MAX_SEARCH_LOOPS
 
+# Import event system if available
+try:
+    from events import SearchEventType, create_evaluation_streaming_progress_event, create_error_event, create_evaluation_strategy_selected_event, create_parallel_evaluation_metrics_event
+except ImportError:
+    # Graceful fallback if events module is not available
+    SearchEventType = None
+
 
 # Create the evaluation agent with lightweight output
 lightweight_evaluation_agent = Agent(
@@ -45,6 +52,9 @@ Return only the synthesized feedback text - no introduction or explanation."""
 
 class EvaluationAgent:
     """Agent responsible for evaluating card relevance and providing feedback"""
+    
+    def __init__(self, event_emitter=None):
+        self.events = event_emitter
     
     def _build_evaluation_prompt(
         self,
@@ -173,8 +183,12 @@ class EvaluationAgent:
             result = await feedback_synthesis_agent.run(prompt)
             return result.output
         except Exception as e:
+            # Emit error event instead of printing
+            if self.events and SearchEventType:
+                self.events.emit(SearchEventType.ERROR_OCCURRED,
+                               create_error_event("feedback_synthesis_error", str(e), {"fallback": "simple_aggregation"}))
+            
             # Fallback to simple aggregation if LLM fails
-            print(f"⚠️ Feedback synthesis failed: {e}")
             if has_insufficient_cards:
                 return f"Found only {total_cards} cards but need {TOP_CARDS_TO_DISPLAY}. Try broader search terms or different criteria to find more relevant cards."
             else:
@@ -311,74 +325,53 @@ class EvaluationAgent:
             Agent result with scored cards and feedback
         """
         if use_streaming:
-            # Show progress message
-            if batch_info:
-                batch_index, total_batches = batch_info
-                print(f"🧠 Batch {batch_index + 1}/{total_batches} evaluating {cards_count} cards...", end="", flush=True)
-            else:
-                print("📊 Evaluation Agent analyzing cards...")
-                print(f"   Evaluating {cards_count} cards for relevance...")
-                print("🧠 ", end="", flush=True)
-            
             try:
                 async with lightweight_evaluation_agent.run_stream(prompt) as result:
                     # Stream structured output as it's being built
                     cards_evaluated = 0
                     async for partial_evaluation in result.stream():
-                        # Show evaluation progress
+                        # Show evaluation progress via events
                         if hasattr(partial_evaluation, 'scored_cards'):
                             current_cards = len(partial_evaluation.scored_cards)
                             if current_cards > cards_evaluated:
                                 cards_evaluated = current_cards
-                                if batch_info:
-                                    batch_index, total_batches = batch_info
-                                    print(f"\r🧠 Batch {batch_index + 1}/{total_batches}: {cards_evaluated}/{cards_count} cards", end="", flush=True)
-                                else:
-                                    print(f"\r🧠 Evaluated {cards_evaluated}/{cards_count} cards", end="", flush=True)
-                        
-                        # Show average score as it develops
-                        if hasattr(partial_evaluation, 'average_score') and partial_evaluation.average_score > 0:
-                            score_text = f" | Score: {partial_evaluation.average_score:.1f}" if batch_info else f" | Avg Score: {partial_evaluation.average_score:.1f}"
-                            print(score_text, end="", flush=True)
-                
-                if batch_info:
-                    print(" ✅")
-                else:
-                    print(f"\n📈 Card evaluation complete!")
+                                
+                                # Get current score if available
+                                current_score = None
+                                if hasattr(partial_evaluation, 'average_score') and partial_evaluation.average_score > 0:
+                                    current_score = partial_evaluation.average_score
+                                
+                                # Emit streaming progress event
+                                if self.events and SearchEventType:
+                                    self.events.emit(SearchEventType.EVALUATION_STREAMING_PROGRESS,
+                                                   create_evaluation_streaming_progress_event(
+                                                       cards_evaluated, cards_count, current_score, batch_info))
                 
                 return await result.get_output()
                 
             except Exception as e:
-                if batch_info:
-                    batch_index, total_batches = batch_info
-                    print(f" ⚠️ Error: {e}")
-                    print(f"🔄 Batch {batch_index + 1} falling back to non-streaming...")
-                else:
-                    print(f"\n⚠️ Streaming error: {e}")
-                    print("🔄 Falling back to non-streaming mode...")
+                # Emit error event instead of printing
+                if self.events and SearchEventType:
+                    error_context = {"batch_info": batch_info, "cards_count": cards_count}
+                    self.events.emit(SearchEventType.ERROR_OCCURRED,
+                                   create_error_event("evaluation_streaming_error", str(e), error_context))
                 
                 # Fallback to non-streaming
                 result = await lightweight_evaluation_agent.run(prompt)
                 return result.output
         else:
             # Use direct generation without streaming
-            if batch_info:
-                batch_index, total_batches = batch_info
-                print(f"🧠 Batch {batch_index + 1}/{total_batches} evaluating {cards_count} cards...", end="", flush=True)
-            else:
-                print("📊 Evaluation Agent analyzing cards...")
-                print(f"   Evaluating {cards_count} cards for relevance...")
-            
             try:
                 result = await lightweight_evaluation_agent.run(prompt)
-                if batch_info:
-                    print(" ✅")
-                else:
-                    print("📈 Card evaluation complete!")
                 return result.output
             except Exception as e:
                 if batch_info:
-                    print(f" ❌ Error: {e}")
+                    # Emit error event for batch failure
+                    if self.events and SearchEventType:
+                        error_context = {"batch_info": batch_info, "cards_count": cards_count}
+                        self.events.emit(SearchEventType.ERROR_OCCURRED,
+                                       create_error_event("evaluation_batch_error", str(e), error_context))
+                    
                     # Return empty result for this batch to prevent total failure
                     return LightweightAgentResult(
                         scored_cards=[],
@@ -413,7 +406,16 @@ class EvaluationAgent:
         
         # Choose evaluation method based on configuration
         if ENABLE_PARALLEL_EVALUATION and len(cards) > EVALUATION_BATCH_SIZE:
-            print(f"🚀 Using parallel batch evaluation (batch size: {EVALUATION_BATCH_SIZE})")
+            # Emit strategy selection event
+            if self.events and SearchEventType:
+                self.events.emit(SearchEventType.EVALUATION_STRATEGY_SELECTED,
+                               create_evaluation_strategy_selected_event(
+                                   "parallel_batch",
+                                   len(cards),
+                                   EVALUATION_BATCH_SIZE,
+                                   reason="Card count exceeds batch size threshold"
+                               ))
+            
             return await self.evaluate_cards_parallel(
                 natural_language_request=natural_language_request,
                 cards=cards,
@@ -425,9 +427,19 @@ class EvaluationAgent:
         else:
             # Fall back to original bulk evaluation for smaller card sets
             if ENABLE_PARALLEL_EVALUATION:
-                print(f"📊 Using bulk evaluation for {len(cards)} cards (below batch size threshold)")
+                reason = "Card count below batch size threshold"
             else:
-                print(f"📊 Using bulk evaluation (parallel processing disabled)")
+                reason = "Parallel processing disabled in configuration"
+            
+            # Emit strategy selection event
+            if self.events and SearchEventType:
+                self.events.emit(SearchEventType.EVALUATION_STRATEGY_SELECTED,
+                               create_evaluation_strategy_selected_event(
+                                   "bulk_evaluation",
+                                   len(cards),
+                                   reason=reason
+                               ))
+            
             return await self._evaluate_cards_bulk(
                 natural_language_request=natural_language_request,
                 cards=cards,
@@ -546,7 +558,16 @@ class EvaluationAgent:
         total_batches = len(batches)
         total_cards = total_cards or len(cards)
         
-        print(f"🚀 Parallel evaluation: {len(cards)} cards in {total_batches} batches of {batch_size}")
+        # Emit parallel evaluation start information through events
+        if self.events and SearchEventType:
+            self.events.emit(SearchEventType.EVALUATION_STRATEGY_SELECTED,
+                           create_evaluation_strategy_selected_event(
+                               "parallel_execution",
+                               len(cards),
+                               batch_size,
+                               total_batches,
+                               f"Starting parallel evaluation of {len(cards)} cards"
+                           ))
         
         # Create tasks for parallel execution
         start_time = time.time()
@@ -568,13 +589,19 @@ class EvaluationAgent:
         batch_results = await asyncio.gather(*tasks)
         elapsed = time.time() - start_time
         
-        print(f"⚡ All {total_batches} batches completed in {elapsed:.1f}s")
-        
         # Calculate estimated sequential time for comparison
         estimated_sequential = elapsed * total_batches
         time_saved = estimated_sequential - elapsed
-        if time_saved > 0:
-            print(f"🚀 Estimated time saved: {time_saved:.1f}s (vs ~{estimated_sequential:.1f}s sequential)")
+        
+        # Emit performance metrics through events
+        if self.events and SearchEventType:
+            self.events.emit(SearchEventType.EVALUATION_PARALLEL_METRICS,
+                           create_parallel_evaluation_metrics_event(
+                               total_batches, 
+                               elapsed, 
+                               time_saved if time_saved > 0 else None,
+                               estimated_sequential
+                           ))
         
         # Combine batch results using helper
         return await self._combine_batch_results(

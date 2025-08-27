@@ -38,13 +38,13 @@ class SearchOrchestrator:
     """Main orchestrator that coordinates the search agents"""
     
     def __init__(self, tags_file_path: str, enable_streaming: bool = False):
-        self.query_agent = QueryAgent(tags_file_path)
-        self.evaluation_agent = EvaluationAgent()
-        self.scryfall_api = ScryfallAPI()
+        self.events = SearchEventEmitter()
+        self.query_agent = QueryAgent(tags_file_path, event_emitter=self.events)
+        self.evaluation_agent = EvaluationAgent(event_emitter=self.events)
+        self.scryfall_api = ScryfallAPI(event_emitter=self.events)
         self.max_loops = MAX_SEARCH_LOOPS
         self.card_cache: Dict[str, CardScore] = {}
         self.enable_streaming = enable_streaming
-        self.events = SearchEventEmitter()
     
     async def search(self, natural_language_request: str) -> EvaluationResult:
         """

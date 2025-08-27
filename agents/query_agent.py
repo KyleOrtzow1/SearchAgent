@@ -13,6 +13,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.search import SearchQuery, TagSuggestion
 from tools.tag_search import TagSearchTool
 
+# Import event system if available
+try:
+    from events import SearchEventType, create_query_generation_started_event, create_query_streaming_progress_event, create_error_event
+except ImportError:
+    # Graceful fallback if events module is not available
+    SearchEventType = None
+
 # Constants for better maintainability
 QUERY_TRUNCATE_LENGTH = 60
 EXPLANATION_TRUNCATE_LENGTH = 40
@@ -243,8 +250,9 @@ async def search_similar_tags(ctx: RunContext[QueryAgentDeps], guess_tags: List[
 class QueryAgent:
     """Agent responsible for converting natural language to Scryfall queries"""
     
-    def __init__(self, tags_file_path: str):
+    def __init__(self, tags_file_path: str, event_emitter=None):
         self.deps = QueryAgentDeps(tags_file_path)
+        self.events = event_emitter
     
     def _build_prompt(
         self, 
@@ -291,17 +299,13 @@ class QueryAgent:
         Args:
             partial_query: Partial query object with query and explanation attributes
         """
-        if hasattr(partial_query, 'query') and partial_query.query:
-            # Clear line and rewrite with current progress
-            truncated_query = partial_query.query[:QUERY_TRUNCATE_LENGTH]
-            query_suffix = '...' if len(partial_query.query) > QUERY_TRUNCATE_LENGTH else ''
-            print(f"\r💭 Query: {truncated_query}{query_suffix}", end="", flush=True)
-        
-        # Show explanation being built
-        if hasattr(partial_query, 'explanation') and partial_query.explanation:
-            truncated_explanation = partial_query.explanation[:EXPLANATION_TRUNCATE_LENGTH]
-            explanation_suffix = '...' if len(partial_query.explanation) > EXPLANATION_TRUNCATE_LENGTH else ''
-            print(f" | Explanation: {truncated_explanation}{explanation_suffix}", end="", flush=True)
+        if self.events and SearchEventType:
+            # Emit streaming progress event instead of printing
+            query = getattr(partial_query, 'query', '') or ''
+            explanation = getattr(partial_query, 'explanation', '') or ''
+            
+            self.events.emit(SearchEventType.QUERY_STREAMING_PROGRESS,
+                           create_query_streaming_progress_event(query, explanation))
     
     async def _execute_with_streaming(self, prompt: str) -> SearchQuery:
         """
@@ -313,8 +317,10 @@ class QueryAgent:
         Returns:
             SearchQuery object with Scryfall syntax
         """
-        print("🤔 Query Agent thinking...")
-        print("💭 ", end="", flush=True)
+        # Emit query generation started event
+        if self.events and SearchEventType:
+            self.events.emit(SearchEventType.QUERY_GENERATION_STARTED,
+                           create_query_generation_started_event("", 0))  # We don't have request/iteration here
         
         try:
             async with query_agent.run_stream(prompt, deps=self.deps) as result:
@@ -322,12 +328,13 @@ class QueryAgent:
                 async for partial_query in result.stream():
                     self._display_streaming_progress(partial_query)
             
-            print(f"\n✨ Query generation complete!")
             return await result.get_output()
             
         except Exception as e:
-            print(f"\n⚠️ Streaming error: {e}")
-            print("🔄 Falling back to non-streaming mode...")
+            # Emit error event instead of printing
+            if self.events and SearchEventType:
+                self.events.emit(SearchEventType.ERROR_OCCURRED,
+                               create_error_event("query_streaming_error", str(e), {"fallback": "non_streaming"}))
             return await self._execute_without_streaming(prompt)
     
     async def _execute_without_streaming(self, prompt: str) -> SearchQuery:
@@ -340,9 +347,12 @@ class QueryAgent:
         Returns:
             SearchQuery object with Scryfall syntax
         """
-        print("🤔 Query Agent thinking...")
+        # Emit query generation started event
+        if self.events and SearchEventType:
+            self.events.emit(SearchEventType.QUERY_GENERATION_STARTED,
+                           create_query_generation_started_event("", 0))  # We don't have request/iteration here
+        
         result = await query_agent.run(prompt, deps=self.deps)
-        print("✨ Query generation complete!")
         return result.output
     
     async def generate_query(
