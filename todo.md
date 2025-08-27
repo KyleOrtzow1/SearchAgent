@@ -12,13 +12,13 @@
 - [ ] Improve color identity understanding - query agent should understand that color identity (id:) means cards that fit "under" a commander of that color (e.g., id:white includes both white cards and colorless cards)
 
 ## Code Refactoring
-- [ ] Complete event system refactoring across entire project - finish migrating all print statements and verbose output to use the new event system. Some areas still need review: ScryfallAPI tool may have print statements, evaluation agents might have debug output, and other components should be audited for clean separation of concerns
 
 ## Interface Development
-- [ ] Build proper user interface to replace example script - design and implement a more user-friendly interface (web UI, GUI, or improved CLI) instead of relying on the basic example.py script
 - [ ] Refactor project for dual-mode usage - enable the system to work both as a standalone user application AND as a tool that can be called by higher-level agents or other systems programmatically
 
 ## Completed
+- [X] Build proper user interface to replace example script - design and implement a more user-friendly interface (web UI, GUI, or improved CLI) instead of relying on the basic example.py script
+- [X] Complete event system refactoring across entire project - finish migrating all print statements and verbose output to use the new event system. Some areas still need review: ScryfallAPI tool may have print statements, evaluation agents might have debug output, and other components should be audited for clean separation of concerns
 - [X] Refactor orchestrator for better organization - review orchestrator code structure, method sizes, and separation of concerns to improve readability and maintainability
 - [X] Refactor query agent for better streamlining - review query agent code structure, prompt organization, and method efficiency to make it more maintainable and performant
 - [X] Refactor models to check for redundancy and streamline - review all Pydantic models for duplicate fields, unused classes, and opportunities to consolidate similar structures
