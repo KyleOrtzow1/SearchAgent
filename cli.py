@@ -64,11 +64,17 @@ class MTGSearchCLI:
         self.current_step = "Ready"
         self.search_status = None
         self.current_status_text = ""
+        # Throttling/deduping for streaming updates
+        self._last_status_time = 0.0
+        self._status_throttle_secs = 0.5
+        self._last_query_stream_text = ""
+        self._last_eval_progress_printed = -1
     def _update_status(self, status_text: str):
         """Update the current status display"""
-        # Simple approach: just print the status update
-        console.print(f"[dim]Status:[/dim] {status_text}")
-        self.current_status_text = status_text
+        # Print only when it changes to reduce noise
+        if status_text != self.current_status_text:
+            console.print(f"[dim]Status:[/dim] {status_text}")
+            self.current_status_text = status_text
     
     def _clear_status(self):
         """Clear the current status display"""
@@ -119,65 +125,44 @@ class MTGSearchCLI:
             elapsed = time.time() - self.start_time if self.start_time else 0
             elapsed_str = f"{elapsed:.1f}s"
             
-            # Show current status with recent history
-            history_text = " | ".join(self.search_history[-3:]) if self.search_history else ""
+            # Show concise current status without repeating history
             status_text = f"[cyan]Iteration {data['iteration']}/{data['max_iterations']} ({elapsed_str})[/cyan]"
-            if history_text:
-                status_text += f"\n[dim]{history_text}[/dim]"
             self._update_status(status_text)
         
         def on_query_generated(data):
             self.current_query = data.get('scryfall_query', data.get('query', 'Unknown'))
-            query_display = self.current_query[:35] + "..." if len(self.current_query) > 35 else self.current_query
-            self.search_history.append(f"Query: {query_display}")
-            
-            history_text = " | ".join(self.search_history[-3:])
-            status_text = f"[blue]Generated: {query_display}[/blue]"
-            if history_text:
-                status_text += f"\n[dim]{history_text}[/dim]"
+            self.search_history.append(f"Query: {self.current_query}")
+            status_text = f"[blue]Generated: {self.current_query}[/blue]"
             self._update_status(status_text)
         
         def on_cards_found(data):
             self.cards_found = data['count']
             self.search_history.append(f"Found {data['count']} cards")
-            
-            history_text = " | ".join(self.search_history[-3:])
             status_text = f"[green]Found {data['count']} cards[/green]"
-            if history_text:
-                status_text += f"\n[dim]{history_text}[/dim]"
             self._update_status(status_text)
         
         def on_evaluation_started(data):
             self.evaluation_total = data['card_count']
             self.evaluation_progress = 0
             self.search_history.append(f"Evaluating {data['card_count']} cards")
-            
-            history_text = " | ".join(self.search_history[-3:])
             status_text = f"[yellow]Evaluating {data['card_count']} cards...[/yellow]"
-            if history_text:
-                status_text += f"\n[dim]{history_text}[/dim]"
             self._update_status(status_text)
         
         def on_evaluation_progress(data):
             self.evaluation_progress = data.get('progress_percent', 0)
-            
-            # Simple progress indicator without animated spinners
-            progress_bar = "=" * int(self.evaluation_progress / 10) + "-" * (10 - int(self.evaluation_progress / 10))
-            
-            history_text = " | ".join(self.search_history[-3:])
-            status_text = f"[yellow]Evaluating... [{progress_bar}] {self.evaluation_progress:.0f}%[/yellow]"
-            if history_text:
-                status_text += f"\n[dim]{history_text}[/dim]"
-            self._update_status(status_text)
+            # Throttle: print only on 5% changes
+            current_pct = int(self.evaluation_progress)
+            if current_pct // 5 != self._last_eval_progress_printed // 5:
+                progress_bar = "=" * (current_pct // 10) + "-" * (10 - (current_pct // 10))
+                status_text = f"[yellow]Evaluating... [{progress_bar}] {self.evaluation_progress:.0f}%[/yellow]"
+                self._update_status(status_text)
+                self._last_eval_progress_printed = current_pct
         
         def on_evaluation_completed(data):
             self.current_score = data['average_score']
             self.search_history.append(f"Score: {self.current_score:.1f}/10")
             
-            history_text = " | ".join(self.search_history[-3:])
             status_text = f"[magenta]DONE Score: {self.current_score:.1f}/10[/magenta]"
-            if history_text:
-                status_text += f"\n[dim]{history_text}[/dim]"
             self._update_status(status_text)
         
         def on_iteration_completed(data):
@@ -188,18 +173,11 @@ class MTGSearchCLI:
                 self.best_score = score
                 self.search_history.append(f"NEW BEST: {score:.1f}/10")
                 
-                history_text = " | ".join(self.search_history[-3:])
                 status_text = f"[bright_green]*** NEW BEST! {score:.1f}/10 ***[/bright_green]"
-                if history_text:
-                    status_text += f"\n[dim]{history_text}[/dim]"
                 self._update_status(status_text)
             else:
                 self.search_history.append(f"Iteration {iteration}: {score:.1f}/10")
-                
-                history_text = " | ".join(self.search_history[-3:])
                 status_text = f"[green]DONE Iteration {iteration}: {score:.1f}/10[/green]"
-                if history_text:
-                    status_text += f"\n[dim]{history_text}[/dim]"
                 self._update_status(status_text)
         
         def on_search_completed(data):
@@ -211,10 +189,7 @@ class MTGSearchCLI:
             self.search_history.append(f"COMPLETED! Final: {final_score:.1f}/10")
             
             # Display final status
-            history_text = " | ".join(self.search_history[-4:])  # Show more history at end
             status_text = f"[bright_cyan]SEARCH COMPLETE! Final Score: {final_score:.1f}/10 ({elapsed:.1f}s)[/bright_cyan]"
-            if history_text:
-                status_text += f"\n[dim]{history_text}[/dim]"
             self._update_status(status_text)
             
             # Clear status after a brief moment
@@ -233,13 +208,16 @@ class MTGSearchCLI:
             query = data.get('partial_query', '')
             explanation = data.get('partial_explanation', '')
             if query:
-                display_query = query[:50] + "..." if len(query) > 50 else query
-                self._update_status(f"[blue]Building query: {display_query}[/blue]")
+                # Throttle frequent updates and avoid repetition; show full query
+                now = time.time()
+                if (now - self._last_status_time) >= self._status_throttle_secs or query != self._last_query_stream_text:
+                    self._update_status(f"[blue]Building query: {query}[/blue]")
+                    self._last_status_time = now
+                    self._last_query_stream_text = query
         
         def on_scryfall_pagination_started(data):
             query = data['query']
-            display_query = query[:50] + "..." if len(query) > 50 else query
-            self._update_status(f"[cyan]Fetching complete results for: {display_query}[/cyan]")
+            self._update_status(f"[cyan]Fetching complete results for: {query}[/cyan]")
         
         def on_scryfall_page_fetched(data):
             page = data['page']
@@ -278,7 +256,7 @@ class MTGSearchCLI:
             error_type = data.get('error_type', 'unknown')
             message = data.get('message', 'An error occurred')
             # Show brief error message
-            self._update_status(f"[red]ERROR {error_type}: {message[:50]}{'...' if len(message) > 50 else ''}[/red]")
+            self._update_status(f"[red]ERROR {error_type}: {message}[/red]")
         
         def on_evaluation_strategy_selected(data):
             strategy = data.get('strategy', 'unknown')
@@ -306,42 +284,8 @@ class MTGSearchCLI:
             self._update_status(status_text)
         
         def on_final_results_display(data):
-            """Handle final results display event"""
-            if not data.get('has_results', False):
-                console.print("[yellow]No relevant cards found.[/yellow]")
-                return
-            
-            # Display results header
-            console.print("\n" + "="*60)
-            console.print("[bold]FINAL SEARCH RESULTS[/bold]")
-            console.print("="*60)
-            
-            # Display summary information
-            iteration_count = data.get('iteration_count', 1)
-            total_unique_cards = data.get('total_unique_cards_evaluated', 0)
-            average_score = data.get('average_score', 0.0)
-            total_cards = data.get('total_cards', 0)
-            
-            console.print(f"Search completed in {iteration_count} iteration(s)")
-            if total_unique_cards > 0:
-                console.print(f"Total unique cards evaluated: {total_unique_cards}")
-            console.print(f"Showing top {total_cards} highest scoring cards (Average: {average_score:.1f}/10)")
-            console.print()
-            
-            # Display individual cards
-            for index, card_data in enumerate(data.get('scored_cards', []), 1):
-                console.print(f"{index}. {card_data['name']} - Score: {card_data['score']}/10")
-                console.print(f"   Mana Cost: {card_data['mana_cost'] or 'None'}")
-                console.print(f"   Type: {card_data['type_line']}")
-                
-                if card_data.get('power') and card_data.get('toughness'):
-                    console.print(f"   Power/Toughness: {card_data['power']}/{card_data['toughness']}")
-                
-                if card_data.get('reasoning'):
-                    console.print(f"   Reasoning: {card_data['reasoning']}")
-                    
-                console.print(f"   Scryfall: {card_data['scryfall_uri']}")
-                console.print()
+            """No-op to avoid duplicate final output; CLI renders results once."""
+            return
         
         # Register event handlers
         self.orchestrator.events.on(SearchEventType.SEARCH_STARTED, on_search_started)
@@ -377,46 +321,44 @@ class MTGSearchCLI:
         console.print(banner)
 
     def format_card_results(self, result: EvaluationResult) -> Table:
-        """Format search results into a rich table"""
+        """Format search results into a rich table with Scryfall links"""
         table = Table(
             title="Search Results",
             border_style="green",
             header_style="bold green"
         )
-        
-        table.add_column("Rank", justify="center", style="cyan", width=4)
-        table.add_column("Score", justify="center", style="yellow", width=5)
-        table.add_column("Card Name", style="bold white", min_width=20)
-        table.add_column("Cost", justify="center", style="magenta", width=8)
-        table.add_column("Type", style="blue", width=15)
-        table.add_column("Reason", style="dim white", max_width=40)
-        
+
+        table.add_column("Rank", justify="center", style="cyan")
+        table.add_column("Score", justify="center", style="yellow")
+        table.add_column("Card Name", style="bold white")
+        table.add_column("Cost", justify="center", style="magenta")
+        table.add_column("Type", style="blue")
+        table.add_column("Oracle Text")
+        table.add_column("Reason", style="dim white")
+
         for i, scored_card in enumerate(result.scored_cards, 1):
             card = scored_card.card
             score = scored_card.score
-            
-            # Format mana cost
+
             mana_cost = card.mana_cost or "N/A"
-            
-            # Format card type
             card_type = card.type_line or "Unknown"
-            if len(card_type) > 15:
-                card_type = card_type[:12] + "..."
-            
-            # Format reasoning
+            oracle_text = getattr(card, "oracle_text", None) or "—"
             reason = scored_card.reasoning or ""
-            if len(reason) > 40:
-                reason = reason[:37] + "..."
-            
+
+            # Clickable name if URL available
+            url = getattr(card, "scryfall_uri", None)
+            name_cell = Text(card.name, style=f"link {url}") if url else Text(card.name)
+
             table.add_row(
                 str(i),
                 f"{score}/10",
-                card.name,
+                name_cell,
                 mana_cost,
                 card_type,
-                reason
+                oracle_text,
+                reason,
             )
-        
+
         return table
 
     def show_search_completion_summary(self, original_query: str, result):
@@ -439,9 +381,7 @@ class MTGSearchCLI:
         if hasattr(self, 'cards_found') and self.cards_found > 0:
             summary_lines.append(f"[bold]Cards Found:[/bold] {self.cards_found}")
         
-        # Show recent search history
-        if self.search_history:
-            summary_lines.append(f"[bold]Search Progress:[/bold] {' -> '.join(self.search_history[-4:])}")
+        # Keep the summary concise (avoid repeating progress history)
         
         summary = Panel(
             "\n".join(summary_lines),
