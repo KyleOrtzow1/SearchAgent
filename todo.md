@@ -13,7 +13,7 @@
 
 ## Code Refactoring
 - [X] Refactor models to check for redundancy and streamline - review all Pydantic models for duplicate fields, unused classes, and opportunities to consolidate similar structures
-- [ ] Refactor query agent for better streamlining - review query agent code structure, prompt organization, and method efficiency to make it more maintainable and performant
+- [X] Refactor query agent for better streamlining - review query agent code structure, prompt organization, and method efficiency to make it more maintainable and performant
 - [ ] Refactor orchestrator for better organization - review orchestrator code structure, method sizes, and separation of concerns to improve readability and maintainability
 
 ## Interface Development
