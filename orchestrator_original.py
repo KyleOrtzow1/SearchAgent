@@ -77,8 +77,8 @@ class SearchOrchestrator:
             )
             
             # Execute search iteration steps
-            query = await self._generate_query_step(natural_language_request, session_state, iteration)
-            search_result = self._execute_scryfall_search_step(query, iteration)
+            query = await self._generate_query_step(natural_language_request, session_state)
+            search_result = self._execute_scryfall_search_step(query)
             
             if not search_result.cards:
                 session_state["feedback"] = "No cards found with this query. Try different search terms or broader criteria."
@@ -105,6 +105,7 @@ class SearchOrchestrator:
                 break
             
             if iteration == self.max_loops:
+                # Max iterations reached, but don't print - just emit event if needed
                 break
         
         total_time = format_time_elapsed(start_time)
@@ -136,7 +137,11 @@ class SearchOrchestrator:
             "best_result": None
         }
     
-    async def _generate_query_step(self, natural_language_request: str, session_state: Dict, iteration: int) -> SearchQuery:
+    def _print_iteration_header(self, iteration: int, start_time: float) -> None:
+        """This method is no longer needed - iteration events are emitted in main search loop"""
+        pass
+    
+    async def _generate_query_step(self, natural_language_request: str, session_state: Dict) -> SearchQuery:
         """Execute query generation step"""
         
         query = await self.query_agent.generate_query(
@@ -149,14 +154,14 @@ class SearchOrchestrator:
         # Emit query generated event
         self.events.emit(
             SearchEventType.QUERY_GENERATED,
-            create_query_generated_event(query.query, query.explanation or "", iteration)
+            create_query_generated_event(query.query, query.explanation or "", len(session_state["previous_queries"]) + 1)
         )
         
         # Store the query
         session_state["previous_queries"].append(query.query)
         return query
     
-    def _execute_scryfall_search_step(self, query: SearchQuery, iteration: int):
+    def _execute_scryfall_search_step(self, query: SearchQuery):
         """Execute Scryfall search step"""
         # Emit scryfall search started event
         self.events.emit(SearchEventType.SCRYFALL_SEARCH_STARTED, {'query': query.query})
@@ -172,7 +177,7 @@ class SearchOrchestrator:
                     len(search_result.cards),
                     search_result.total_cards or len(search_result.cards),
                     paginated,
-                    iteration
+                    1  # We'll need to pass iteration later
                 )
             )
         
@@ -180,6 +185,9 @@ class SearchOrchestrator:
     
     def _analyze_cache_step(self, cards: List[Card]) -> Tuple[List[Card], List[CardScore]]:
         """Analyze cache and separate new cards from cached cards"""
+        print(f"\n⚡ STEP 3: Cache Analysis")
+        print("-" * 30)
+        
         new_cards = []
         cached_scores = []
         
@@ -189,64 +197,41 @@ class SearchOrchestrator:
             else:
                 new_cards.append(card)
         
-        # Emit cache analyzed event
-        self.events.emit(
-            SearchEventType.CACHE_ANALYZED,
-            create_cache_analyzed_event(len(new_cards), len(cached_scores))
-        )
+        print(f"🆕 New cards to evaluate: {len(new_cards)}")
+        print(f"💾 Cached cards: {len(cached_scores)}")
         
         return new_cards, cached_scores
     
     async def _evaluate_cards_step(
         self, 
         natural_language_request: str, 
-        cards: List[Card], 
+        new_cards: List[Card], 
         iteration: int, 
-        previous_queries: List[str],
+        previous_queries: List[str], 
         total_cards: int
     ) -> EvaluationResult:
         """Execute card evaluation step"""
+        print(f"\n🎯 STEP 4: Card Evaluation")
+        print("-" * 30)
         
-        # Emit evaluation started event
-        batch_size = EVALUATION_BATCH_SIZE if ENABLE_PARALLEL_EVALUATION else len(cards)
-        self.events.emit(
-            SearchEventType.EVALUATION_STARTED,
-            create_evaluation_started_event(len(cards), batch_size, ENABLE_PARALLEL_EVALUATION)
-        )
-        
-        # Create progress callback for evaluation
-        def progress_callback(completed: int, total: int):
-            self.events.emit(
-                SearchEventType.EVALUATION_BATCH_PROGRESS,
-                create_evaluation_progress_event(completed, total, completed * batch_size)
-            )
-        
-        # Evaluate cards
-        start_eval_time = time.time()
-        
-        if ENABLE_PARALLEL_EVALUATION:
-            lightweight_evaluation = await self.evaluation_agent.evaluate_cards_parallel(
-                natural_language_request, cards, iteration,
-                previous_queries, self.enable_streaming, total_cards
-            )
-        else:
-            lightweight_evaluation = await self.evaluation_agent.evaluate_cards_bulk(
-                natural_language_request, cards, iteration,
-                previous_queries, self.enable_streaming, total_cards
-            )
-        
-        # Emit evaluation completed event
-        eval_duration = format_time_elapsed(start_eval_time)
-        self.events.emit(
-            SearchEventType.EVALUATION_COMPLETED,
-            create_evaluation_completed_event(len(cards), lightweight_evaluation.average_score, eval_duration)
+        lightweight_evaluation = await self.evaluation_agent.evaluate_cards(
+            natural_language_request=natural_language_request,
+            cards=new_cards,
+            iteration_count=iteration,
+            previous_queries=previous_queries,
+            use_streaming=self.enable_streaming,
+            total_cards=total_cards
         )
         
         # Convert lightweight result to full result
-        return self._convert_lightweight_to_full_result(lightweight_evaluation, cards)
+        return self._convert_lightweight_to_full_result(lightweight_evaluation, new_cards)
     
     def _create_empty_evaluation(self, iteration: int) -> EvaluationResult:
         """Create empty evaluation result when using cache only"""
+        print(f"\n⚡ STEP 4: Using Cache Only")
+        print("-" * 30)
+        print("🎯 No new cards to evaluate, using cached results only")
+        
         return EvaluationResult(
             scored_cards=[],
             average_score=0.0,
@@ -285,37 +270,58 @@ class SearchOrchestrator:
         iteration_start: float
     ) -> bool:
         """Summarize iteration results and determine if search should continue"""
+        print(f"\n📊 STEP 5: Results Summary")
+        print("-" * 30)
+        print(f"📈 Total relevance score: {evaluation.average_score:.1f}/10")
+        print(f"🎯 Cards evaluated: {len(evaluation.scored_cards)}")
         
-        # Update best result if this is better
-        is_new_best = False
-        if (not session_state["best_result"] or 
-            evaluation.average_score > session_state["best_result"].average_score):
+        # Store best result so far
+        if session_state["best_result"] is None or evaluation.average_score > session_state["best_result"].average_score:
             session_state["best_result"] = evaluation
-            is_new_best = True
+            print(f"🌟 New best result! (Score: {evaluation.average_score:.1f}/10)")
         
-        # Check if evaluation agent is satisfied
-        is_satisfied = not evaluation.should_continue
+        # Check if we should continue
+        if not evaluation.should_continue:
+            print("✅ Evaluation agent is satisfied with results. Stopping search.")
+            return True
         
-        # Update feedback for next iteration
-        if evaluation.feedback_for_query_agent:
-            session_state["feedback"] = evaluation.feedback_for_query_agent
+        # Use feedback for next iteration
+        session_state["feedback"] = evaluation.feedback_for_query_agent
+        if session_state["feedback"]:
+            print(f"\n💡 Feedback for next iteration:")
+            print(f"   {session_state['feedback']}")
         
-        duration = format_time_elapsed(iteration_start)
+        print(f"⏱️ Iteration completed in {format_time_elapsed(iteration_start)}")
+        return False
+    
+    def _convert_lightweight_to_full_result(
+        self, 
+        lightweight_result: LightweightEvaluationResult, 
+        cards: List[Card]
+    ) -> EvaluationResult:
+        """Convert lightweight evaluation result back to full result using card data"""
+        # Create a lookup dict for cards by ID
+        card_lookup = {card.id: card for card in cards}
         
-        # Emit iteration completed event
-        self.events.emit(
-            SearchEventType.ITERATION_COMPLETED,
-            create_iteration_completed_event(
-                evaluation.iteration_count,
-                evaluation.average_score,
-                is_new_best,
-                is_satisfied,
-                duration
-            )
+        # Convert lightweight scores to full scores
+        full_scored_cards = []
+        for lightweight_score in lightweight_result.scored_cards:
+            card = card_lookup.get(lightweight_score.card_id)
+            if card:
+                full_score = CardScore(
+                    card=card,
+                    score=lightweight_score.score,
+                    reasoning=lightweight_score.reasoning
+                )
+                full_scored_cards.append(full_score)
+        
+        return EvaluationResult(
+            scored_cards=full_scored_cards,
+            average_score=lightweight_result.average_score,
+            should_continue=lightweight_result.should_continue,
+            feedback_for_query_agent=lightweight_result.feedback_for_query_agent,
+            iteration_count=lightweight_result.iteration_count
         )
-        
-        # Return whether to stop the search
-        return is_satisfied
     
     def _create_final_result_with_top_cards(self, result: EvaluationResult) -> EvaluationResult:
         """Create final result with top N highest scoring cards from entire search cache"""
@@ -340,63 +346,82 @@ class SearchOrchestrator:
             iteration_count=result.iteration_count
         )
     
-    def _convert_lightweight_to_full_result(self, lightweight_result: LightweightEvaluationResult, cards: List[Card]) -> EvaluationResult:
-        """Convert lightweight evaluation result to full result with complete card data"""
-        # Create a mapping of card IDs to cards for quick lookup
-        card_map = {card.id: card for card in cards}
-        
-        # Convert lightweight scores to full scores
-        full_scored_cards = []
-        for lightweight_score in lightweight_result.scored_cards:
-            if lightweight_score.card_id in card_map:
-                full_card = card_map[lightweight_score.card_id]
-                full_score = CardScore(
-                    card=full_card,
-                    score=lightweight_score.score,
-                    reasoning=lightweight_score.reasoning
-                )
-                full_scored_cards.append(full_score)
-        
-        return EvaluationResult(
-            scored_cards=full_scored_cards,
-            average_score=lightweight_result.average_score,
-            should_continue=lightweight_result.should_continue,
-            feedback_for_query_agent=lightweight_result.feedback_for_query_agent,
-            iteration_count=lightweight_result.iteration_count
-        )
-    
     def get_cache_stats(self) -> Dict[str, int]:
         """Get statistics about the current card cache"""
         return {
             "cached_cards": len(self.card_cache),
             "cache_size_bytes": sum(len(str(card_score)) for card_score in self.card_cache.values())
         }
-
+    
     def print_final_results(self, result: EvaluationResult) -> None:
-        """Legacy method for backward compatibility - consider using events instead"""
-        # This method is kept for backward compatibility but should be replaced with event handling
+        """Print the final search results in a readable format"""
+        self._print_results_header()
+        
         if not result.scored_cards:
             print("No relevant cards found.")
             return
-            
-        total_unique_cards = len(self.card_cache)
         
+        self._print_search_summary(result)
+        self._print_card_details(result.scored_cards)
+    
+    def _print_results_header(self) -> None:
+        """Print the results header"""
         print("\n" + "="*60)
         print("FINAL SEARCH RESULTS")
         print("="*60)
+    
+    def _print_search_summary(self, result: EvaluationResult) -> None:
+        """Print search summary statistics"""
+        cache_stats = self.get_cache_stats()
+        total_unique_cards = cache_stats['cached_cards']
+        
         print(f"Search completed in {result.iteration_count} iteration(s)")
         print(f"Total unique cards evaluated: {total_unique_cards}")
         print(f"Showing top {min(len(result.scored_cards), TOP_CARDS_TO_DISPLAY)} highest scoring cards (Average: {result.average_score:.1f}/10)")
         print()
+    
+    def _print_card_details(self, scored_cards: List[CardScore]) -> None:
+        """Print detailed information for each card"""
+        # Sort by score descending
+        sorted_cards = sorted(scored_cards, key=lambda x: x.score, reverse=True)
         
-        for index, scored_card in enumerate(result.scored_cards, 1):
-            card = scored_card.card
-            print(f"{index}. {card.name} - Score: {scored_card.score}/10")
-            print(f"   Mana Cost: {card.mana_cost or 'None'}")
-            print(f"   Type: {card.type_line}")
-            if hasattr(card, 'power') and hasattr(card, 'toughness') and card.power and card.toughness:
-                print(f"   Power/Toughness: {card.power}/{card.toughness}")
-            if scored_card.reasoning:
-                print(f"   Reasoning: {scored_card.reasoning}")
-            print(f"   Scryfall: {card.scryfall_uri}")
-            print()
+        for i, scored_card in enumerate(sorted_cards, 1):
+            self._print_single_card(i, scored_card)
+    
+    def _print_single_card(self, index: int, scored_card: CardScore) -> None:
+        """Print details for a single card"""
+        card = scored_card.card
+        print(f"{index}. {card.name} - Score: {scored_card.score}/10 ⭐")
+        print(f"   Mana Cost: {card.mana_cost or 'None'}")
+        print(f"   Type: {card.type_line}")
+        print(f"   Set: {card.set_name} ({card.set_code.upper()})")
+        print(f"   Rarity: {card.rarity.title()}")
+        
+        if card.power and card.toughness:
+            print(f"   Power/Toughness: {card.power}/{card.toughness}")
+        
+        if card.oracle_text:
+            text = self._truncate_text(card.oracle_text, 150)
+            print(f"   Text: {text}")
+        
+        if scored_card.reasoning:
+            print(f"   Why: {scored_card.reasoning}")
+        
+        print(f"   Scryfall: {card.scryfall_uri}")
+        print()
+    
+    def _truncate_text(self, text: str, max_length: int) -> str:
+        """Truncate text to specified length with ellipsis if needed"""
+        if len(text) > max_length:
+            return text[:max_length] + "..."
+        return text
+
+
+async def main():
+    """Example usage of the search orchestrator"""
+    # This would be called from example.py
+    pass
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
