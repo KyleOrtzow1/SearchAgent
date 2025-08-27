@@ -49,7 +49,7 @@ class MTGSearchCLI:
         self.live_display = None
         self.layout = None
         
-        # Status tracking for animated display
+        # Status tracking
         self.search_history = []
         self.current_iteration = 1
         self.max_iterations = 5
@@ -60,8 +60,6 @@ class MTGSearchCLI:
         self.current_score = 0.0
         self.best_score = 0.0
         self.start_time = None
-        self.search_active = False
-        self.current_step = "Ready"
         
     async def initialize(self) -> bool:
         """Initialize the orchestrator and check dependencies"""
@@ -87,134 +85,53 @@ class MTGSearchCLI:
         """Set up event handlers for clean progress display"""
         
         def on_search_started(data):
-            self.start_time = time.time()
-            self.search_active = True
-            self.search_history = []
-            self.max_iterations = data.get('max_iterations', 5)
-            
-            # Create animated status with spinner
-            spinner_text = "[cyan]⠋ Starting search...[/cyan]"
-            self.search_status = Status(spinner_text)
+            self.search_status = Status("[cyan]Starting search...[/cyan]")
             self.search_status.start()
             
-            # Track the first activity
-            self.search_history.append("Search initialized")
-            
         def on_iteration_started(data):
-            self.current_iteration = data['iteration']
-            self.search_history.append(f"→ Iteration {data['iteration']}/{data['max_iterations']}")
-            
-            elapsed = time.time() - self.start_time if self.start_time else 0
-            elapsed_str = f"{elapsed:.1f}s"
-            
             if self.search_status:
-                # Show current status with recent history
-                history_text = " | ".join(self.search_history[-3:]) if self.search_history else ""
-                status_text = f"[cyan]⠙ Iteration {data['iteration']}/{data['max_iterations']} ({elapsed_str})[/cyan]"
-                if history_text:
-                    status_text += f"\n[dim]{history_text}[/dim]"
-                self.search_status.update(status_text)
+                self.search_status.update(f"[cyan]Iteration {data['iteration']}/{data['max_iterations']}[/cyan]")
         
         def on_query_generated(data):
-            self.current_query = data.get('scryfall_query', data.get('query', 'Unknown'))
-            query_display = self.current_query[:35] + "..." if len(self.current_query) > 35 else self.current_query
-            self.search_history.append(f"Query: {query_display}")
-            
             if self.search_status:
-                history_text = " | ".join(self.search_history[-3:])
-                status_text = f"[blue]⠹ Generated: {query_display}[/blue]"
-                if history_text:
-                    status_text += f"\n[dim]{history_text}[/dim]"
-                self.search_status.update(status_text)
+                query = data['scryfall_query']
+                # Truncate long queries for display
+                display_query = query[:50] + "..." if len(query) > 50 else query
+                self.search_status.update(f"[blue]Generated query: {display_query}[/blue]")
         
         def on_cards_found(data):
-            self.cards_found = data['count']
-            self.search_history.append(f"Found {data['count']} cards")
-            
             if self.search_status:
-                history_text = " | ".join(self.search_history[-3:])
-                status_text = f"[green]⠸ Found {data['count']} cards[/green]"
-                if history_text:
-                    status_text += f"\n[dim]{history_text}[/dim]"
-                self.search_status.update(status_text)
+                count = data['count']
+                self.search_status.update(f"[green]Found {count} cards[/green]")
         
         def on_evaluation_started(data):
-            self.evaluation_total = data['card_count']
-            self.evaluation_progress = 0
-            self.search_history.append(f"Evaluating {data['card_count']} cards")
-            
             if self.search_status:
-                history_text = " | ".join(self.search_history[-3:])
-                status_text = f"[yellow]⠼ Evaluating {data['card_count']} cards...[/yellow]"
-                if history_text:
-                    status_text += f"\n[dim]{history_text}[/dim]"
-                self.search_status.update(status_text)
+                count = data['card_count']
+                self.search_status.update(f"[yellow]Evaluating {count} cards...[/yellow]")
         
         def on_evaluation_progress(data):
-            self.evaluation_progress = data.get('progress_percent', 0)
-            
             if self.search_status:
-                # Animated spinner that changes with progress
-                progress_spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-                spinner_idx = int(time.time() * 5) % len(progress_spinners)
-                spinner = progress_spinners[spinner_idx]
-                
-                history_text = " | ".join(self.search_history[-3:])
-                status_text = f"[yellow]{spinner} Evaluating... {self.evaluation_progress:.0f}%[/yellow]"
-                if history_text:
-                    status_text += f"\n[dim]{history_text}[/dim]"
-                self.search_status.update(status_text)
+                percent = data.get('progress_percent', 0)
+                self.search_status.update(f"[yellow]Evaluating cards... {percent:.0f}% complete[/yellow]")
         
         def on_evaluation_completed(data):
-            self.current_score = data['average_score']
-            self.search_history.append(f"Score: {self.current_score:.1f}/10")
-            
             if self.search_status:
-                history_text = " | ".join(self.search_history[-3:])
-                status_text = f"[magenta]✓ Score: {self.current_score:.1f}/10[/magenta]"
-                if history_text:
-                    status_text += f"\n[dim]{history_text}[/dim]"
-                self.search_status.update(status_text)
+                score = data['average_score']
+                self.search_status.update(f"[magenta]Evaluation complete (avg score: {score:.1f}/10)[/magenta]")
         
         def on_iteration_completed(data):
-            score = data['score']
-            iteration = data['iteration']
-            
-            if data['is_best']:
-                self.best_score = score
-                self.search_history.append(f"NEW BEST: {score:.1f}/10")
-                
-                if self.search_status:
-                    history_text = " | ".join(self.search_history[-3:])
-                    status_text = f"[bright_green]★ NEW BEST! {score:.1f}/10[/bright_green]"
-                    if history_text:
-                        status_text += f"\n[dim]{history_text}[/dim]"
-                    self.search_status.update(status_text)
-            else:
-                self.search_history.append(f"Iteration {iteration}: {score:.1f}/10")
-                
-                if self.search_status:
-                    history_text = " | ".join(self.search_history[-3:])
-                    status_text = f"[green]✓ Iteration {iteration}: {score:.1f}/10[/green]"
-                    if history_text:
-                        status_text += f"\n[dim]{history_text}[/dim]"
-                    self.search_status.update(status_text)
+            if self.search_status:
+                score = data['score']
+                iteration = data['iteration']
+                if data['is_best']:
+                    self.search_status.update(f"[bright_green]Iteration {iteration} complete! New best score: {score:.1f}/10[/bright_green]")
+                else:
+                    self.search_status.update(f"[green]Iteration {iteration} complete (score: {score:.1f}/10)[/green]")
         
         def on_search_completed(data):
-            self.search_active = False
-            final_score = data.get('final_score', self.best_score)
-            self.search_history.append(f"COMPLETED! Final: {final_score:.1f}/10")
-            
             if self.search_status:
-                elapsed = time.time() - self.start_time if self.start_time else 0
-                history_text = " | ".join(self.search_history[-4:])  # Show more history at end
-                status_text = f"[bright_cyan]✨ SEARCH COMPLETE! Final Score: {final_score:.1f}/10 ({elapsed:.1f}s)[/bright_cyan]"
-                if history_text:
-                    status_text += f"\n[dim]{history_text}[/dim]"
-                self.search_status.update(status_text)
-                
-                # Don't stop immediately - let the status remain until the method ends
-                # The method calling this will handle cleanup
+                self.search_status.stop()
+                self.search_status = None
         
         def on_query_generation_started(data):
             if self.search_status:
@@ -477,15 +394,6 @@ class MTGSearchCLI:
         try:
             # Perform search (progress is handled by events now)
             result = await self.orchestrator.search(query)
-            
-            # Give the final status a moment to be visible
-            import asyncio
-            await asyncio.sleep(1.5)
-            
-            # Clean up status display
-            if hasattr(self, 'search_status') and self.search_status:
-                self.search_status.stop()
-                self.search_status = None
             
             if result.scored_cards:
                 console.print()
