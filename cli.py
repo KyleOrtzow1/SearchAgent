@@ -176,6 +176,33 @@ class MTGSearchCLI:
                 # Show brief error message
                 self.search_status.update(f"[red]⚠️ {error_type}: {message[:50]}{'...' if len(message) > 50 else ''}[/red]")
         
+        def on_evaluation_strategy_selected(data):
+            if self.search_status:
+                strategy = data.get('strategy', 'unknown')
+                card_count = data.get('card_count', 0)
+                reason = data.get('reason', '')
+                
+                if strategy == "parallel_batch":
+                    batch_size = data.get('batch_size', 0)
+                    self.search_status.update(f"[cyan]🚀 Parallel evaluation: {card_count} cards (batch size: {batch_size})[/cyan]")
+                elif strategy == "parallel_execution":
+                    total_batches = data.get('total_batches', 0)
+                    batch_size = data.get('batch_size', 0)
+                    self.search_status.update(f"[cyan]⚡ Processing {card_count} cards in {total_batches} batches of {batch_size}[/cyan]")
+                elif strategy == "bulk_evaluation":
+                    self.search_status.update(f"[cyan]📊 Bulk evaluation: {card_count} cards ({reason})[/cyan]")
+        
+        def on_evaluation_parallel_metrics(data):
+            if self.search_status:
+                total_batches = data.get('total_batches', 0)
+                elapsed_time = data.get('elapsed_time', 0)
+                time_saved = data.get('time_saved')
+                
+                status_text = f"[green]⚡ All {total_batches} batches completed in {elapsed_time:.1f}s[/green]"
+                if time_saved and time_saved > 0:
+                    status_text += f" [bright_green](saved {time_saved:.1f}s)[/bright_green]"
+                self.search_status.update(status_text)
+        
         # Register event handlers
         self.orchestrator.events.on(SearchEventType.SEARCH_STARTED, on_search_started)
         self.orchestrator.events.on(SearchEventType.ITERATION_STARTED, on_iteration_started)
@@ -186,8 +213,10 @@ class MTGSearchCLI:
         self.orchestrator.events.on(SearchEventType.SCRYFALL_PAGE_FETCHED, on_scryfall_page_fetched)
         self.orchestrator.events.on(SearchEventType.SCRYFALL_PAGINATION_COMPLETED, on_scryfall_pagination_completed)
         self.orchestrator.events.on(SearchEventType.CARDS_FOUND, on_cards_found)
+        self.orchestrator.events.on(SearchEventType.EVALUATION_STRATEGY_SELECTED, on_evaluation_strategy_selected)
         self.orchestrator.events.on(SearchEventType.EVALUATION_STARTED, on_evaluation_started)
         self.orchestrator.events.on(SearchEventType.EVALUATION_STREAMING_PROGRESS, on_evaluation_streaming_progress)
+        self.orchestrator.events.on(SearchEventType.EVALUATION_PARALLEL_METRICS, on_evaluation_parallel_metrics)
         self.orchestrator.events.on(SearchEventType.EVALUATION_BATCH_PROGRESS, on_evaluation_progress)
         self.orchestrator.events.on(SearchEventType.EVALUATION_COMPLETED, on_evaluation_completed)
         self.orchestrator.events.on(SearchEventType.ITERATION_COMPLETED, on_iteration_completed)

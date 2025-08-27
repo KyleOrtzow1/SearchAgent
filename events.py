@@ -23,9 +23,11 @@ class SearchEventType(str, Enum):
     SCRYFALL_PAGINATION_COMPLETED = "scryfall_pagination_completed"
     CARDS_FOUND = "cards_found"
     CACHE_ANALYZED = "cache_analyzed"
+    EVALUATION_STRATEGY_SELECTED = "evaluation_strategy_selected"
     EVALUATION_STARTED = "evaluation_started"
     EVALUATION_STREAMING_PROGRESS = "evaluation_streaming_progress"
     EVALUATION_BATCH_PROGRESS = "evaluation_batch_progress"
+    EVALUATION_PARALLEL_METRICS = "evaluation_parallel_metrics"
     EVALUATION_COMPLETED = "evaluation_completed"
     ITERATION_COMPLETED = "iteration_completed"
     SEARCH_COMPLETED = "search_completed"
@@ -259,4 +261,30 @@ def create_error_event(error_type: str, message: str, context: Dict[str, Any] = 
     }
     if context:
         data['context'] = context
+    return data
+
+def create_evaluation_strategy_selected_event(strategy: str, card_count: int, batch_size: int = None, total_batches: int = None, reason: str = None) -> Dict[str, Any]:
+    """Create data for evaluation strategy selected event"""
+    data = {
+        'strategy': strategy,
+        'card_count': card_count
+    }
+    if batch_size is not None:
+        data['batch_size'] = batch_size
+    if total_batches is not None:
+        data['total_batches'] = total_batches
+    if reason:
+        data['reason'] = reason
+    return data
+
+def create_parallel_evaluation_metrics_event(total_batches: int, elapsed_time: float, time_saved: float = None, estimated_sequential: float = None) -> Dict[str, Any]:
+    """Create data for parallel evaluation performance metrics event"""
+    data = {
+        'total_batches': total_batches,
+        'elapsed_time': elapsed_time
+    }
+    if time_saved is not None:
+        data['time_saved'] = time_saved
+    if estimated_sequential is not None:
+        data['estimated_sequential'] = estimated_sequential
     return data

@@ -18,7 +18,7 @@ from config import ENABLE_PARALLEL_EVALUATION, EVALUATION_BATCH_SIZE, TOP_CARDS_
 
 # Import event system if available
 try:
-    from events import SearchEventType, create_evaluation_streaming_progress_event, create_error_event
+    from events import SearchEventType, create_evaluation_streaming_progress_event, create_error_event, create_evaluation_strategy_selected_event, create_parallel_evaluation_metrics_event
 except ImportError:
     # Graceful fallback if events module is not available
     SearchEventType = None
@@ -406,7 +406,16 @@ class EvaluationAgent:
         
         # Choose evaluation method based on configuration
         if ENABLE_PARALLEL_EVALUATION and len(cards) > EVALUATION_BATCH_SIZE:
-            print(f"🚀 Using parallel batch evaluation (batch size: {EVALUATION_BATCH_SIZE})")
+            # Emit strategy selection event
+            if self.events and SearchEventType:
+                self.events.emit(SearchEventType.EVALUATION_STRATEGY_SELECTED,
+                               create_evaluation_strategy_selected_event(
+                                   "parallel_batch",
+                                   len(cards),
+                                   EVALUATION_BATCH_SIZE,
+                                   reason="Card count exceeds batch size threshold"
+                               ))
+            
             return await self.evaluate_cards_parallel(
                 natural_language_request=natural_language_request,
                 cards=cards,
@@ -418,9 +427,19 @@ class EvaluationAgent:
         else:
             # Fall back to original bulk evaluation for smaller card sets
             if ENABLE_PARALLEL_EVALUATION:
-                print(f"📊 Using bulk evaluation for {len(cards)} cards (below batch size threshold)")
+                reason = "Card count below batch size threshold"
             else:
-                print(f"📊 Using bulk evaluation (parallel processing disabled)")
+                reason = "Parallel processing disabled in configuration"
+            
+            # Emit strategy selection event
+            if self.events and SearchEventType:
+                self.events.emit(SearchEventType.EVALUATION_STRATEGY_SELECTED,
+                               create_evaluation_strategy_selected_event(
+                                   "bulk_evaluation",
+                                   len(cards),
+                                   reason=reason
+                               ))
+            
             return await self._evaluate_cards_bulk(
                 natural_language_request=natural_language_request,
                 cards=cards,
@@ -539,7 +558,16 @@ class EvaluationAgent:
         total_batches = len(batches)
         total_cards = total_cards or len(cards)
         
-        print(f"🚀 Parallel evaluation: {len(cards)} cards in {total_batches} batches of {batch_size}")
+        # Emit parallel evaluation start information through events
+        if self.events and SearchEventType:
+            self.events.emit(SearchEventType.EVALUATION_STRATEGY_SELECTED,
+                           create_evaluation_strategy_selected_event(
+                               "parallel_execution",
+                               len(cards),
+                               batch_size,
+                               total_batches,
+                               f"Starting parallel evaluation of {len(cards)} cards"
+                           ))
         
         # Create tasks for parallel execution
         start_time = time.time()
@@ -561,13 +589,19 @@ class EvaluationAgent:
         batch_results = await asyncio.gather(*tasks)
         elapsed = time.time() - start_time
         
-        print(f"⚡ All {total_batches} batches completed in {elapsed:.1f}s")
-        
         # Calculate estimated sequential time for comparison
         estimated_sequential = elapsed * total_batches
         time_saved = estimated_sequential - elapsed
-        if time_saved > 0:
-            print(f"🚀 Estimated time saved: {time_saved:.1f}s (vs ~{estimated_sequential:.1f}s sequential)")
+        
+        # Emit performance metrics through events
+        if self.events and SearchEventType:
+            self.events.emit(SearchEventType.EVALUATION_PARALLEL_METRICS,
+                           create_parallel_evaluation_metrics_event(
+                               total_batches, 
+                               elapsed, 
+                               time_saved if time_saved > 0 else None,
+                               estimated_sequential
+                           ))
         
         # Combine batch results using helper
         return await self._combine_batch_results(
