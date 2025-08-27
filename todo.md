@@ -12,6 +12,7 @@
 - [ ] Improve color identity understanding - query agent should understand that color identity (id:) means cards that fit "under" a commander of that color (e.g., id:white includes both white cards and colorless cards)
 
 ## Code Refactoring
+- [ ] Complete event system refactoring across entire project - finish migrating all print statements and verbose output to use the new event system. Some areas still need review: ScryfallAPI tool may have print statements, evaluation agents might have debug output, and other components should be audited for clean separation of concerns
 
 ## Interface Development
 - [ ] Build proper user interface to replace example script - design and implement a more user-friendly interface (web UI, GUI, or improved CLI) instead of relying on the basic example.py script
