@@ -17,7 +17,7 @@ from events import (
     create_search_started_event, create_iteration_started_event, create_query_generated_event,
     create_cards_found_event, create_cache_analyzed_event, create_evaluation_started_event,
     create_evaluation_progress_event, create_evaluation_completed_event,
-    create_iteration_completed_event, create_search_completed_event
+    create_iteration_completed_event, create_search_completed_event, create_final_results_display_event
 )
 
 
@@ -373,30 +373,12 @@ class SearchOrchestrator:
         }
 
     def print_final_results(self, result: EvaluationResult) -> None:
-        """Legacy method for backward compatibility - consider using events instead"""
-        # This method is kept for backward compatibility but should be replaced with event handling
-        if not result.scored_cards:
-            print("No relevant cards found.")
-            return
-            
-        total_unique_cards = len(self.card_cache)
+        """Display final search results using event handling system"""
+        # Get cache stats for the event
+        cache_stats = self.get_cache_stats()
         
-        print("\n" + "="*60)
-        print("FINAL SEARCH RESULTS")
-        print("="*60)
-        print(f"Search completed in {result.iteration_count} iteration(s)")
-        print(f"Total unique cards evaluated: {total_unique_cards}")
-        print(f"Showing top {min(len(result.scored_cards), TOP_CARDS_TO_DISPLAY)} highest scoring cards (Average: {result.average_score:.1f}/10)")
-        print()
-        
-        for index, scored_card in enumerate(result.scored_cards, 1):
-            card = scored_card.card
-            print(f"{index}. {card.name} - Score: {scored_card.score}/10")
-            print(f"   Mana Cost: {card.mana_cost or 'None'}")
-            print(f"   Type: {card.type_line}")
-            if hasattr(card, 'power') and hasattr(card, 'toughness') and card.power and card.toughness:
-                print(f"   Power/Toughness: {card.power}/{card.toughness}")
-            if scored_card.reasoning:
-                print(f"   Reasoning: {scored_card.reasoning}")
-            print(f"   Scryfall: {card.scryfall_uri}")
-            print()
+        # Emit the final results display event
+        self.events.emit(
+            SearchEventType.FINAL_RESULTS_DISPLAY,
+            create_final_results_display_event(result, cache_stats)
+        )

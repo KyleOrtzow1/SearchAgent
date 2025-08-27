@@ -203,6 +203,44 @@ class MTGSearchCLI:
                     status_text += f" [bright_green](saved {time_saved:.1f}s)[/bright_green]"
                 self.search_status.update(status_text)
         
+        def on_final_results_display(data):
+            """Handle final results display event"""
+            if not data.get('has_results', False):
+                console.print("[yellow]No relevant cards found.[/yellow]")
+                return
+            
+            # Display results header
+            console.print("\n" + "="*60)
+            console.print("[bold]FINAL SEARCH RESULTS[/bold]")
+            console.print("="*60)
+            
+            # Display summary information
+            iteration_count = data.get('iteration_count', 1)
+            total_unique_cards = data.get('total_unique_cards_evaluated', 0)
+            average_score = data.get('average_score', 0.0)
+            total_cards = data.get('total_cards', 0)
+            
+            console.print(f"Search completed in {iteration_count} iteration(s)")
+            if total_unique_cards > 0:
+                console.print(f"Total unique cards evaluated: {total_unique_cards}")
+            console.print(f"Showing top {total_cards} highest scoring cards (Average: {average_score:.1f}/10)")
+            console.print()
+            
+            # Display individual cards
+            for index, card_data in enumerate(data.get('scored_cards', []), 1):
+                console.print(f"{index}. {card_data['name']} - Score: {card_data['score']}/10")
+                console.print(f"   Mana Cost: {card_data['mana_cost'] or 'None'}")
+                console.print(f"   Type: {card_data['type_line']}")
+                
+                if card_data.get('power') and card_data.get('toughness'):
+                    console.print(f"   Power/Toughness: {card_data['power']}/{card_data['toughness']}")
+                
+                if card_data.get('reasoning'):
+                    console.print(f"   Reasoning: {card_data['reasoning']}")
+                    
+                console.print(f"   Scryfall: {card_data['scryfall_uri']}")
+                console.print()
+        
         # Register event handlers
         self.orchestrator.events.on(SearchEventType.SEARCH_STARTED, on_search_started)
         self.orchestrator.events.on(SearchEventType.ITERATION_STARTED, on_iteration_started)
@@ -221,6 +259,7 @@ class MTGSearchCLI:
         self.orchestrator.events.on(SearchEventType.EVALUATION_COMPLETED, on_evaluation_completed)
         self.orchestrator.events.on(SearchEventType.ITERATION_COMPLETED, on_iteration_completed)
         self.orchestrator.events.on(SearchEventType.SEARCH_COMPLETED, on_search_completed)
+        self.orchestrator.events.on(SearchEventType.FINAL_RESULTS_DISPLAY, on_final_results_display)
         self.orchestrator.events.on(SearchEventType.ERROR_OCCURRED, on_error_occurred)
 
     def show_banner(self):

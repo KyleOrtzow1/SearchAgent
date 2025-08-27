@@ -31,6 +31,7 @@ class SearchEventType(str, Enum):
     EVALUATION_COMPLETED = "evaluation_completed"
     ITERATION_COMPLETED = "iteration_completed"
     SEARCH_COMPLETED = "search_completed"
+    FINAL_RESULTS_DISPLAY = "final_results_display"
     ERROR_OCCURRED = "error_occurred"
 
 
@@ -288,3 +289,39 @@ def create_parallel_evaluation_metrics_event(total_batches: int, elapsed_time: f
     if estimated_sequential is not None:
         data['estimated_sequential'] = estimated_sequential
     return data
+
+def create_final_results_display_event(result, cache_stats: Dict[str, int] = None) -> Dict[str, Any]:
+    """Create data for final results display event"""
+    from models.evaluation import EvaluationResult  # Import here to avoid circular imports
+    
+    scored_cards_data = []
+    for scored_card in result.scored_cards:
+        card_data = {
+            'name': scored_card.card.name,
+            'score': scored_card.score,
+            'mana_cost': scored_card.card.mana_cost,
+            'type_line': scored_card.card.type_line,
+            'scryfall_uri': scored_card.card.scryfall_uri,
+            'reasoning': scored_card.reasoning
+        }
+        
+        # Add power/toughness if available
+        if hasattr(scored_card.card, 'power') and hasattr(scored_card.card, 'toughness') and scored_card.card.power and scored_card.card.toughness:
+            card_data['power'] = scored_card.card.power
+            card_data['toughness'] = scored_card.card.toughness
+            
+        scored_cards_data.append(card_data)
+    
+    event_data = {
+        'scored_cards': scored_cards_data,
+        'total_cards': len(result.scored_cards),
+        'average_score': result.average_score,
+        'iteration_count': result.iteration_count,
+        'has_results': len(result.scored_cards) > 0
+    }
+    
+    # Add cache stats if provided
+    if cache_stats:
+        event_data['total_unique_cards_evaluated'] = cache_stats.get('cached_cards', 0)
+    
+    return event_data

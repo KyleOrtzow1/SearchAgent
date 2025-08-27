@@ -42,6 +42,49 @@ async def main():
     
     orchestrator = SearchOrchestrator(tags_file_path, enable_streaming=enable_streaming)
     
+    # Set up event handler for final results display
+    def handle_final_results_display(data):
+        """Handle final results display event"""
+        if not data.get('has_results', False):
+            print("No relevant cards found.")
+            return
+        
+        # Display results header
+        print("\n" + "="*60)
+        print("FINAL SEARCH RESULTS")
+        print("="*60)
+        
+        # Display summary information
+        iteration_count = data.get('iteration_count', 1)
+        total_unique_cards = data.get('total_unique_cards_evaluated', 0)
+        average_score = data.get('average_score', 0.0)
+        total_cards = data.get('total_cards', 0)
+        
+        print(f"Search completed in {iteration_count} iteration(s)")
+        if total_unique_cards > 0:
+            print(f"Total unique cards evaluated: {total_unique_cards}")
+        print(f"Showing top {total_cards} highest scoring cards (Average: {average_score:.1f}/10)")
+        print()
+        
+        # Display individual cards
+        for index, card_data in enumerate(data.get('scored_cards', []), 1):
+            print(f"{index}. {card_data['name']} - Score: {card_data['score']}/10")
+            print(f"   Mana Cost: {card_data['mana_cost'] or 'None'}")
+            print(f"   Type: {card_data['type_line']}")
+            
+            if card_data.get('power') and card_data.get('toughness'):
+                print(f"   Power/Toughness: {card_data['power']}/{card_data['toughness']}")
+            
+            if card_data.get('reasoning'):
+                print(f"   Reasoning: {card_data['reasoning']}")
+                
+            print(f"   Scryfall: {card_data['scryfall_uri']}")
+            print()
+    
+    # Register the event handler
+    from events import SearchEventType
+    orchestrator.events.on(SearchEventType.FINAL_RESULTS_DISPLAY, handle_final_results_display)
+    
     # Example searches
     example_requests = [
         "I want a cheap red creature with haste that can deal damage quickly",
@@ -83,7 +126,7 @@ async def main():
             print("\nStarting search...")
             result = await orchestrator.search(request)
             
-            # Display results
+            # Display results using event-driven approach
             orchestrator.print_final_results(result)
             
             # Ask if user wants to continue
