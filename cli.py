@@ -63,20 +63,18 @@ class MTGSearchCLI:
         self.search_active = False
         self.current_step = "Ready"
         self.search_status = None
+        self.current_status_text = ""
     def _update_status(self, status_text: str):
         """Update the current status display"""
-        # Clear previous line and print new status
-        if self.current_status_text:
-            # Move cursor up and clear line if there was previous status
-            console.print(f"\r{' ' * 80}\r", end="")
-        
-        console.print(f"[dim]Status:[/dim] {status_text}", end="")
+        # Simple approach: just print the status update
+        console.print(f"[dim]Status:[/dim] {status_text}")
         self.current_status_text = status_text
     
     def _clear_status(self):
         """Clear the current status display"""
+        # Just print a newline to separate from the results
         if self.current_status_text:
-            console.print(f"\r{' ' * 80}\r", end="")
+            console.print()
             self.current_status_text = ""
         
     async def initialize(self) -> bool:
