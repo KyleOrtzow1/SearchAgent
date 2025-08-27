@@ -115,16 +115,84 @@ class MTGSearchCLI:
                 self.search_status.stop()
                 self.search_status = None
         
+        def on_query_generation_started(data):
+            if self.search_status:
+                self.search_status.update("[blue]Generating search query...[/blue]")
+        
+        def on_query_streaming_progress(data):
+            if self.search_status:
+                query = data.get('partial_query', '')
+                explanation = data.get('partial_explanation', '')
+                if query:
+                    display_query = query[:50] + "..." if len(query) > 50 else query
+                    self.search_status.update(f"[blue]Building query: {display_query}[/blue]")
+        
+        def on_scryfall_pagination_started(data):
+            if self.search_status:
+                query = data['query']
+                display_query = query[:50] + "..." if len(query) > 50 else query
+                self.search_status.update(f"[cyan]Fetching complete results for: {display_query}[/cyan]")
+        
+        def on_scryfall_page_fetched(data):
+            if self.search_status:
+                page = data['page']
+                cards_so_far = data['total_cards_so_far']
+                total_available = data['total_available']
+                progress = data.get('progress_percent', 0)
+                self.search_status.update(f"[cyan]Fetched page {page}: {cards_so_far}/{total_available} cards ({progress:.0f}%)[/cyan]")
+        
+        def on_scryfall_pagination_completed(data):
+            if self.search_status:
+                total_cards = data['total_cards']
+                pages = data['pages_fetched']
+                limited = data['limited_by_max']
+                status_text = f"[green]Fetched {total_cards} cards from {pages} page(s)[/green]"
+                if limited:
+                    status_text += " [yellow](limited by max results)[/yellow]"
+                self.search_status.update(status_text)
+        
+        def on_evaluation_streaming_progress(data):
+            if self.search_status:
+                evaluated = data['cards_evaluated']
+                total = data['total_cards']
+                progress = data.get('progress_percent', 0)
+                batch_info = data.get('batch_index'), data.get('total_batches')
+                
+                if batch_info[0] is not None and batch_info[1] is not None:
+                    batch_text = f"Batch {batch_info[0] + 1}/{batch_info[1]}: "
+                else:
+                    batch_text = ""
+                
+                score_text = ""
+                if data.get('current_score'):
+                    score_text = f" (score: {data['current_score']:.1f})"
+                
+                self.search_status.update(f"[yellow]{batch_text}Evaluating {evaluated}/{total} cards ({progress:.0f}%){score_text}[/yellow]")
+        
+        def on_error_occurred(data):
+            if self.search_status:
+                error_type = data.get('error_type', 'unknown')
+                message = data.get('message', 'An error occurred')
+                # Show brief error message
+                self.search_status.update(f"[red]⚠️ {error_type}: {message[:50]}{'...' if len(message) > 50 else ''}[/red]")
+        
         # Register event handlers
         self.orchestrator.events.on(SearchEventType.SEARCH_STARTED, on_search_started)
         self.orchestrator.events.on(SearchEventType.ITERATION_STARTED, on_iteration_started)
+        self.orchestrator.events.on(SearchEventType.QUERY_GENERATION_STARTED, on_query_generation_started)
+        self.orchestrator.events.on(SearchEventType.QUERY_STREAMING_PROGRESS, on_query_streaming_progress)
         self.orchestrator.events.on(SearchEventType.QUERY_GENERATED, on_query_generated)
+        self.orchestrator.events.on(SearchEventType.SCRYFALL_PAGINATION_STARTED, on_scryfall_pagination_started)
+        self.orchestrator.events.on(SearchEventType.SCRYFALL_PAGE_FETCHED, on_scryfall_page_fetched)
+        self.orchestrator.events.on(SearchEventType.SCRYFALL_PAGINATION_COMPLETED, on_scryfall_pagination_completed)
         self.orchestrator.events.on(SearchEventType.CARDS_FOUND, on_cards_found)
         self.orchestrator.events.on(SearchEventType.EVALUATION_STARTED, on_evaluation_started)
+        self.orchestrator.events.on(SearchEventType.EVALUATION_STREAMING_PROGRESS, on_evaluation_streaming_progress)
         self.orchestrator.events.on(SearchEventType.EVALUATION_BATCH_PROGRESS, on_evaluation_progress)
         self.orchestrator.events.on(SearchEventType.EVALUATION_COMPLETED, on_evaluation_completed)
         self.orchestrator.events.on(SearchEventType.ITERATION_COMPLETED, on_iteration_completed)
         self.orchestrator.events.on(SearchEventType.SEARCH_COMPLETED, on_search_completed)
+        self.orchestrator.events.on(SearchEventType.ERROR_OCCURRED, on_error_occurred)
 
     def show_banner(self):
         """Display the application banner"""

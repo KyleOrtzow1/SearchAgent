@@ -15,10 +15,16 @@ class SearchEventType(str, Enum):
     SEARCH_STARTED = "search_started"
     ITERATION_STARTED = "iteration_started"
     QUERY_GENERATED = "query_generated"
+    QUERY_GENERATION_STARTED = "query_generation_started"
+    QUERY_STREAMING_PROGRESS = "query_streaming_progress"
     SCRYFALL_SEARCH_STARTED = "scryfall_search_started"
+    SCRYFALL_PAGINATION_STARTED = "scryfall_pagination_started"
+    SCRYFALL_PAGE_FETCHED = "scryfall_page_fetched"
+    SCRYFALL_PAGINATION_COMPLETED = "scryfall_pagination_completed"
     CARDS_FOUND = "cards_found"
     CACHE_ANALYZED = "cache_analyzed"
     EVALUATION_STARTED = "evaluation_started"
+    EVALUATION_STREAMING_PROGRESS = "evaluation_streaming_progress"
     EVALUATION_BATCH_PROGRESS = "evaluation_batch_progress"
     EVALUATION_COMPLETED = "evaluation_completed"
     ITERATION_COMPLETED = "iteration_completed"
@@ -188,3 +194,69 @@ def create_search_completed_event(total_cards: int, final_score: float, iteratio
         'iterations_used': iterations,
         'total_duration': duration
     }
+
+def create_query_generation_started_event(request: str, iteration: int) -> Dict[str, Any]:
+    """Create data for query generation started event"""
+    return {
+        'request': request,
+        'iteration': iteration,
+        'timestamp': datetime.now().isoformat()
+    }
+
+def create_query_streaming_progress_event(partial_query: str, partial_explanation: str) -> Dict[str, Any]:
+    """Create data for query streaming progress event"""
+    return {
+        'partial_query': partial_query,
+        'partial_explanation': partial_explanation
+    }
+
+def create_scryfall_pagination_started_event(query: str, estimated_total: int = None) -> Dict[str, Any]:
+    """Create data for scryfall pagination started event"""
+    return {
+        'query': query,
+        'estimated_total': estimated_total
+    }
+
+def create_scryfall_page_fetched_event(page: int, cards_in_page: int, total_cards_so_far: int, total_available: int) -> Dict[str, Any]:
+    """Create data for scryfall page fetched event"""
+    return {
+        'page': page,
+        'cards_in_page': cards_in_page,
+        'total_cards_so_far': total_cards_so_far,
+        'total_available': total_available,
+        'progress_percent': (total_cards_so_far / total_available) * 100 if total_available > 0 else 0
+    }
+
+def create_scryfall_pagination_completed_event(total_cards: int, pages_fetched: int, limited_by_max: bool) -> Dict[str, Any]:
+    """Create data for scryfall pagination completed event"""
+    return {
+        'total_cards': total_cards,
+        'pages_fetched': pages_fetched,
+        'limited_by_max': limited_by_max
+    }
+
+def create_evaluation_streaming_progress_event(cards_evaluated: int, total_cards: int, current_score: float = None, batch_info: tuple = None) -> Dict[str, Any]:
+    """Create data for evaluation streaming progress event"""
+    data = {
+        'cards_evaluated': cards_evaluated,
+        'total_cards': total_cards,
+        'progress_percent': (cards_evaluated / total_cards) * 100 if total_cards > 0 else 0
+    }
+    if current_score is not None:
+        data['current_score'] = current_score
+    if batch_info:
+        batch_index, total_batches = batch_info
+        data['batch_index'] = batch_index
+        data['total_batches'] = total_batches
+    return data
+
+def create_error_event(error_type: str, message: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Create data for error event"""
+    data = {
+        'error_type': error_type,
+        'message': message,
+        'timestamp': datetime.now().isoformat()
+    }
+    if context:
+        data['context'] = context
+    return data

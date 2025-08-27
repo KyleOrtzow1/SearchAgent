@@ -9,11 +9,18 @@ from models.card import Card
 from models.search import SearchQuery, SearchResult
 from config import SCRYFALL_BASE_URL, SCRYFALL_RATE_LIMIT_MS, MAX_RESULTS_PER_SEARCH, ENABLE_FULL_PAGINATION, MAX_PAGES_TO_FETCH
 
+# Import event system if available
+try:
+    from events import SearchEventType, create_scryfall_pagination_started_event, create_scryfall_page_fetched_event, create_scryfall_pagination_completed_event, create_error_event
+except ImportError:
+    # Graceful fallback if events module is not available
+    SearchEventType = None
+
 
 class ScryfallAPI:
     """Tool for interacting with the Scryfall API"""
     
-    def __init__(self):
+    def __init__(self, event_emitter=None):
         self.base_url = SCRYFALL_BASE_URL
         self.rate_limit_ms = SCRYFALL_RATE_LIMIT_MS
         self.last_request_time = 0
@@ -22,6 +29,7 @@ class ScryfallAPI:
             'User-Agent': 'MTGSearchAgent/1.0',
             'Accept': 'application/json'
         })
+        self.events = event_emitter
     
     def _rate_limit(self) -> None:
         """Enforce rate limiting between requests"""
@@ -98,7 +106,10 @@ class ScryfallAPI:
         page = 1
         pages_fetched = 0
         
-        print(f"🔍 Fetching complete result set for query: {search_query.query}")
+        # Emit pagination started event
+        if self.events and SearchEventType:
+            self.events.emit(SearchEventType.SCRYFALL_PAGINATION_STARTED, 
+                           create_scryfall_pagination_started_event(search_query.query))
         
         while has_more and pages_fetched < MAX_PAGES_TO_FETCH:
             self._rate_limit()
@@ -125,19 +136,29 @@ class ScryfallAPI:
                 has_more = data.get('has_more', False)
                 pages_fetched += 1
                 
-                print(f"📄 Fetched page {page}: {len(page_cards)} cards (Total: {len(all_cards)}/{total_cards})")
+                # Emit page fetched event
+                if self.events and SearchEventType:
+                    self.events.emit(SearchEventType.SCRYFALL_PAGE_FETCHED,
+                                   create_scryfall_page_fetched_event(page, len(page_cards), len(all_cards), total_cards))
                 
                 # Respect MAX_RESULTS_PER_SEARCH limit across all pages
                 if len(all_cards) >= MAX_RESULTS_PER_SEARCH:
                     all_cards = all_cards[:MAX_RESULTS_PER_SEARCH]
                     has_more = False
-                    print(f"⚠️ Reached maximum result limit ({MAX_RESULTS_PER_SEARCH} cards)")
+                    # Emit completion event with limit information
+                    if self.events and SearchEventType:
+                        self.events.emit(SearchEventType.SCRYFALL_PAGINATION_COMPLETED,
+                                       create_scryfall_pagination_completed_event(len(all_cards), pages_fetched, True))
                     break
                 
                 page += 1
                 
             except requests.exceptions.RequestException as e:
-                print(f"❌ Error fetching page {page}: {e}")
+                # Emit error event
+                if self.events and SearchEventType:
+                    self.events.emit(SearchEventType.ERROR_OCCURRED,
+                                   create_error_event("scryfall_request_error", str(e), {"page": page, "query": search_query.query}))
+                
                 # If we have some cards already, return them; otherwise return empty
                 if all_cards:
                     has_more = False
@@ -150,10 +171,11 @@ class ScryfallAPI:
                         has_more=False
                     )
         
-        if pages_fetched >= MAX_PAGES_TO_FETCH and has_more:
-            print(f"⚠️ Stopped at maximum pages limit ({MAX_PAGES_TO_FETCH} pages)")
-        
-        print(f"✅ Pagination complete: {len(all_cards)} cards from {pages_fetched} page(s)")
+        # Emit final completion event
+        if self.events and SearchEventType:
+            limited_by_max = pages_fetched >= MAX_PAGES_TO_FETCH and has_more
+            self.events.emit(SearchEventType.SCRYFALL_PAGINATION_COMPLETED,
+                           create_scryfall_pagination_completed_event(len(all_cards), pages_fetched, limited_by_max))
         
         return SearchResult(
             query=search_query,
