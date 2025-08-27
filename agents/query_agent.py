@@ -13,19 +13,12 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.search import SearchQuery, TagSuggestion
 from tools.tag_search import TagSearchTool
 
+# Constants for better maintainability
+QUERY_TRUNCATE_LENGTH = 60
+EXPLANATION_TRUNCATE_LENGTH = 40
 
-class QueryAgentDeps:
-    """Dependencies for the Query Agent"""
-    def __init__(self, tags_file_path: str):
-        self.tag_search = TagSearchTool(tags_file_path)
-
-
-# Create the query agent with comprehensive Scryfall syntax knowledge
-query_agent = Agent(
-    model=OpenAIResponsesModel('gpt-5-mini'),
-    deps_type=QueryAgentDeps,
-    output_type=SearchQuery,
-    system_prompt="""You are an expert at converting natural language Magic: The Gathering card requests into precise Scryfall search queries.
+# System prompt extracted for better maintainability and token efficiency
+SCRYFALL_EXPERT_SYSTEM_PROMPT = """You are an expert at converting natural language Magic: The Gathering card requests into precise Scryfall search queries.
 
 # **Scryfall Search Reference Guide**
 
@@ -214,6 +207,20 @@ When converting requests:
 5. Return a SearchQuery with the final query and explanation
 
 Feel free to check for relevant tags when they could improve search results for functional categories."""
+
+
+class QueryAgentDeps:
+    """Dependencies for the Query Agent"""
+    def __init__(self, tags_file_path: str):
+        self.tag_search = TagSearchTool(tags_file_path)
+
+
+# Create the query agent with comprehensive Scryfall syntax knowledge
+query_agent = Agent(
+    model=OpenAIResponsesModel('gpt-5-mini'),
+    deps_type=QueryAgentDeps,
+    output_type=SearchQuery,
+    system_prompt=SCRYFALL_EXPERT_SYSTEM_PROMPT
 )
 
 
@@ -239,15 +246,14 @@ class QueryAgent:
     def __init__(self, tags_file_path: str):
         self.deps = QueryAgentDeps(tags_file_path)
     
-    async def generate_query(
+    def _build_prompt(
         self, 
         natural_language_request: str, 
         previous_queries: List[str] = None,
-        feedback: Optional[str] = None,
-        use_streaming: bool = False
-    ) -> SearchQuery:
+        feedback: Optional[str] = None
+    ) -> str:
         """
-        Generate a Scryfall query from natural language request
+        Build the prompt for query generation with context
         
         Args:
             natural_language_request: The user's natural language request
@@ -255,11 +261,10 @@ class QueryAgent:
             feedback: Feedback from evaluation agent on how to improve
             
         Returns:
-            SearchQuery object with Scryfall syntax
+            Complete prompt string
         """
         previous_queries = previous_queries or []
         
-        # Build the prompt with context
         prompt_parts = [
             f"Convert this natural language request to a Scryfall search query: {natural_language_request}"
         ]
@@ -277,39 +282,91 @@ class QueryAgent:
             "Return a SearchQuery with the final query string and explanation."
         )
         
-        prompt = "\n\n".join(prompt_parts)
+        return "\n\n".join(prompt_parts)
+    
+    def _display_streaming_progress(self, partial_query) -> None:
+        """
+        Display streaming progress for query generation
         
-        # Use either streaming or direct generation based on parameter
-        if use_streaming:
-            print("🤔 Query Agent thinking...")
-            print("💭 ", end="", flush=True)
+        Args:
+            partial_query: Partial query object with query and explanation attributes
+        """
+        if hasattr(partial_query, 'query') and partial_query.query:
+            # Clear line and rewrite with current progress
+            truncated_query = partial_query.query[:QUERY_TRUNCATE_LENGTH]
+            query_suffix = '...' if len(partial_query.query) > QUERY_TRUNCATE_LENGTH else ''
+            print(f"\r💭 Query: {truncated_query}{query_suffix}", end="", flush=True)
+        
+        # Show explanation being built
+        if hasattr(partial_query, 'explanation') and partial_query.explanation:
+            truncated_explanation = partial_query.explanation[:EXPLANATION_TRUNCATE_LENGTH]
+            explanation_suffix = '...' if len(partial_query.explanation) > EXPLANATION_TRUNCATE_LENGTH else ''
+            print(f" | Explanation: {truncated_explanation}{explanation_suffix}", end="", flush=True)
+    
+    async def _execute_with_streaming(self, prompt: str) -> SearchQuery:
+        """
+        Execute query generation with streaming enabled
+        
+        Args:
+            prompt: Complete prompt string
             
-            # Use run_stream() with native structured streaming
-            try:
-                async with query_agent.run_stream(prompt, deps=self.deps) as result:
-                    # Stream structured output as it's being built
-                    async for partial_query in result.stream():
-                        # Show the query being constructed
-                        if hasattr(partial_query, 'query') and partial_query.query:
-                            # Clear line and rewrite with current progress
-                            print(f"\r💭 Query: {partial_query.query[:60]}{'...' if len(partial_query.query) > 60 else ''}", end="", flush=True)
-                        
-                        # Show explanation being built
-                        if hasattr(partial_query, 'explanation') and partial_query.explanation:
-                            explanation_preview = partial_query.explanation[:40]
-                            print(f" | Explanation: {explanation_preview}{'...' if len(partial_query.explanation) > 40 else ''}", end="", flush=True)
-                
-                print(f"\n✨ Query generation complete!")
-                return await result.get_output()
-                
-            except Exception as e:
-                print(f"\n⚠️ Streaming error: {e}")
-                print("🔄 Falling back to non-streaming mode...")
-                result = await query_agent.run(prompt, deps=self.deps)
-                return result.output
+        Returns:
+            SearchQuery object with Scryfall syntax
+        """
+        print("🤔 Query Agent thinking...")
+        print("💭 ", end="", flush=True)
+        
+        try:
+            async with query_agent.run_stream(prompt, deps=self.deps) as result:
+                # Stream structured output as it's being built
+                async for partial_query in result.stream():
+                    self._display_streaming_progress(partial_query)
+            
+            print(f"\n✨ Query generation complete!")
+            return await result.get_output()
+            
+        except Exception as e:
+            print(f"\n⚠️ Streaming error: {e}")
+            print("🔄 Falling back to non-streaming mode...")
+            return await self._execute_without_streaming(prompt)
+    
+    async def _execute_without_streaming(self, prompt: str) -> SearchQuery:
+        """
+        Execute query generation without streaming
+        
+        Args:
+            prompt: Complete prompt string
+            
+        Returns:
+            SearchQuery object with Scryfall syntax
+        """
+        print("🤔 Query Agent thinking...")
+        result = await query_agent.run(prompt, deps=self.deps)
+        print("✨ Query generation complete!")
+        return result.output
+    
+    async def generate_query(
+        self, 
+        natural_language_request: str, 
+        previous_queries: List[str] = None,
+        feedback: Optional[str] = None,
+        use_streaming: bool = False
+    ) -> SearchQuery:
+        """
+        Generate a Scryfall query from natural language request
+        
+        Args:
+            natural_language_request: The user's natural language request
+            previous_queries: List of previously attempted queries
+            feedback: Feedback from evaluation agent on how to improve
+            use_streaming: Whether to use streaming mode for real-time progress
+            
+        Returns:
+            SearchQuery object with Scryfall syntax
+        """
+        prompt = self._build_prompt(natural_language_request, previous_queries, feedback)
+        
+        if use_streaming:
+            return await self._execute_with_streaming(prompt)
         else:
-            # Use direct generation without streaming to save tokens
-            print("🤔 Query Agent thinking...")
-            result = await query_agent.run(prompt, deps=self.deps)
-            print("✨ Query generation complete!")
-            return result.output
+            return await self._execute_without_streaming(prompt)
