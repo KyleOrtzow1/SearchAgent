@@ -12,7 +12,6 @@
 - [ ] Improve color identity understanding - query agent should understand that color identity (id:) means cards that fit "under" a commander of that color (e.g., id:white includes both white cards and colorless cards)
 
 ## Code Refactoring
-- [X] Refactor models to check for redundancy and streamline - review all Pydantic models for duplicate fields, unused classes, and opportunities to consolidate similar structures
 - [ ] Refactor query agent for better streamlining - review query agent code structure, prompt organization, and method efficiency to make it more maintainable and performant
 - [ ] Refactor orchestrator for better organization - review orchestrator code structure, method sizes, and separation of concerns to improve readability and maintainability
 
@@ -21,6 +20,7 @@
 - [ ] Refactor project for dual-mode usage - enable the system to work both as a standalone user application AND as a tool that can be called by higher-level agents or other systems programmatically
 
 ## Completed
+- [X] Refactor models to check for redundancy and streamline - review all Pydantic models for duplicate fields, unused classes, and opportunities to consolidate similar structures
 - [X] Change caching to track by card ID instead of name - modify card caching system to use Scryfall card IDs instead of card names for better accuracy and handling of cards with same names
 - [X] Implement pagination to return all cards matching a query instead of being limited to ~175 cards (Scryfall API limitation) - add ability to fetch complete result sets
 - [X] Extract stop loop confidence threshold to config.py so it can be changed on the fly (currently hardcoded as `< 6` in evaluation logic)
