@@ -292,7 +292,7 @@ def create_parallel_evaluation_metrics_event(total_batches: int, elapsed_time: f
 
 def create_final_results_display_event(result, cache_stats: Dict[str, int] = None) -> Dict[str, Any]:
     """Create data for final results display event"""
-    from models.evaluation import EvaluationResult  # Import here to avoid circular imports
+    from .models.evaluation import EvaluationResult  # Import here to avoid circular imports
     
     scored_cards_data = []
     for scored_card in result.scored_cards:
