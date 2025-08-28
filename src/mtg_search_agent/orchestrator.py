@@ -5,14 +5,14 @@ from dotenv import load_dotenv
 
 # Load environment variables at module level
 load_dotenv()
-from agents.query_agent import QueryAgent
-from agents.evaluation_agent import EvaluationAgent
-from tools.scryfall_api import ScryfallAPI
-from models.evaluation import EvaluationResult, CardScore, LightweightEvaluationResult
-from models.search import SearchQuery
-from models.card import Card
-from config import MAX_SEARCH_LOOPS, ENABLE_PARALLEL_EVALUATION, EVALUATION_BATCH_SIZE, TOP_CARDS_TO_DISPLAY, ENABLE_FULL_PAGINATION
-from events import (
+from .agents.query_agent import QueryAgent
+from .agents.evaluation_agent import EvaluationAgent
+from .tools.scryfall_api import ScryfallAPI
+from .models.evaluation import EvaluationResult, CardScore, LightweightEvaluationResult
+from .models.search import SearchQuery
+from .models.card import Card
+from .config import MAX_SEARCH_LOOPS, ENABLE_PARALLEL_EVALUATION, EVALUATION_BATCH_SIZE, TOP_CARDS_TO_DISPLAY, ENABLE_FULL_PAGINATION
+from .events import (
     SearchEventEmitter, SearchEventType,
     create_search_started_event, create_iteration_started_event, create_query_generated_event,
     create_cards_found_event, create_cache_analyzed_event, create_evaluation_started_event,
@@ -37,9 +37,9 @@ def format_time_elapsed(start_time: float) -> str:
 class SearchOrchestrator:
     """Main orchestrator that coordinates the search agents"""
     
-    def __init__(self, tags_file_path: str, enable_streaming: bool = False):
+    def __init__(self, enable_streaming: bool = False):
         self.events = SearchEventEmitter()
-        self.query_agent = QueryAgent(tags_file_path, event_emitter=self.events)
+        self.query_agent = QueryAgent(event_emitter=self.events)
         self.evaluation_agent = EvaluationAgent(event_emitter=self.events)
         self.scryfall_api = ScryfallAPI(event_emitter=self.events)
         self.max_loops = MAX_SEARCH_LOOPS

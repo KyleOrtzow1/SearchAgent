@@ -1,27 +1,29 @@
 import json
+import importlib.resources
 from typing import List, Dict, Any
 from fuzzywuzzy import fuzz
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from models.search import TagSuggestion
+from ..models.search import TagSuggestion
 
 
 class TagSearchTool:
     """Tool for finding similar tags using fuzzy string matching"""
     
-    def __init__(self, tags_file_path: str):
-        self.tags_file_path = tags_file_path
+    def __init__(self):
         self.tags_data: Dict[str, List[str]] = {}
         self.flat_tags: List[tuple] = []  # (tag, category)
         self._load_tags()
     
     def _load_tags(self) -> None:
-        """Load tags from JSON file and create flat structure for searching"""
-        with open(self.tags_file_path, 'r', encoding='utf-8') as f:
-            self.tags_data = json.load(f)
-        
+        """Load tags from the JSON file included with the package"""
+        try:
+            # This new method reliably finds the data file within the package
+            with importlib.resources.open_text('mtg_search_agent', 'tags.json') as f:
+                self.tags_data = json.load(f)
+        except FileNotFoundError:
+            print("Error: tags.json not found. The package may be installed incorrectly.")
+            return
+
         # Create flat list of (tag, category) tuples for efficient searching
         for category, tags in self.tags_data.items():
             for tag in tags:
