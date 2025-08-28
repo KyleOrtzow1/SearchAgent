@@ -10,15 +10,13 @@ from dotenv import load_dotenv
 # Load environment variables at module level
 load_dotenv()
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from models.card import Card
-from models.evaluation import EvaluationResult, CardScore, LightweightEvaluationResult, LightweightAgentResult
-from config import ENABLE_PARALLEL_EVALUATION, EVALUATION_BATCH_SIZE, TOP_CARDS_TO_DISPLAY, STOP_LOOP_CONFIDENCE_THRESHOLD, MAX_SEARCH_LOOPS
+from ..models.card import Card
+from ..models.evaluation import EvaluationResult, CardScore, LightweightEvaluationResult, LightweightAgentResult
+from ..config import ENABLE_PARALLEL_EVALUATION, EVALUATION_BATCH_SIZE, TOP_CARDS_TO_DISPLAY, STOP_LOOP_CONFIDENCE_THRESHOLD, MAX_SEARCH_LOOPS
 
 # Import event system if available
 try:
-    from events import SearchEventType, create_evaluation_streaming_progress_event, create_error_event, create_evaluation_strategy_selected_event, create_parallel_evaluation_metrics_event
+    from ..events import SearchEventType, create_evaluation_streaming_progress_event, create_error_event, create_evaluation_strategy_selected_event, create_parallel_evaluation_metrics_event
 except ImportError:
     # Graceful fallback if events module is not available
     SearchEventType = None

@@ -8,14 +8,13 @@ from dotenv import load_dotenv
 # Load environment variables at module level
 load_dotenv()
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from models.search import SearchQuery, TagSuggestion
-from tools.tag_search import TagSearchTool
+from ..models.search import SearchQuery, TagSuggestion
+from ..tools.tag_search import TagSearchTool
 
 # Import event system if available
 try:
-    from events import SearchEventType, create_query_generation_started_event, create_query_streaming_progress_event, create_error_event
+    from ..events import SearchEventType, create_query_generation_started_event, create_query_streaming_progress_event, create_error_event
 except ImportError:
     # Graceful fallback if events module is not available
     SearchEventType = None
@@ -218,8 +217,8 @@ Feel free to check for relevant tags when they could improve search results for 
 
 class QueryAgentDeps:
     """Dependencies for the Query Agent"""
-    def __init__(self, tags_file_path: str):
-        self.tag_search = TagSearchTool(tags_file_path)
+    def __init__(self):
+        self.tag_search = TagSearchTool()
 
 
 # Create the query agent with comprehensive Scryfall syntax knowledge
@@ -250,8 +249,8 @@ async def search_similar_tags(ctx: RunContext[QueryAgentDeps], guess_tags: List[
 class QueryAgent:
     """Agent responsible for converting natural language to Scryfall queries"""
     
-    def __init__(self, tags_file_path: str, event_emitter=None):
-        self.deps = QueryAgentDeps(tags_file_path)
+    def __init__(self, event_emitter=None):
+        self.deps = QueryAgentDeps()
         self.events = event_emitter
     
     def _build_prompt(

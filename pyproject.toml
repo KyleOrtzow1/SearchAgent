@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mtg-search-agent"
+version = "1.0.0"
+authors = [
+  { name="Kyle Ortzow", email="you@example.com" },
+]
+description = "A multi-agent system for finding Magic: The Gathering cards using natural language."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "pydantic-ai",
+    "openai",
+    "requests",
+    "python-dotenv",
+    "fuzzywuzzy[speedup]",
+    "typing-extensions",
+    "rich",
+    "click",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"mtg_search_agent" = ["tags.json"]

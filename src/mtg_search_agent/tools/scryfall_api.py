@@ -3,15 +3,13 @@ import requests
 from typing import Dict, Any, Optional
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from models.card import Card
-from models.search import SearchQuery, SearchResult
-from config import SCRYFALL_BASE_URL, SCRYFALL_RATE_LIMIT_MS, MAX_RESULTS_PER_SEARCH, ENABLE_FULL_PAGINATION, MAX_PAGES_TO_FETCH
+from ..models.card import Card
+from ..models.search import SearchQuery, SearchResult
+from ..config import SCRYFALL_BASE_URL, SCRYFALL_RATE_LIMIT_MS, MAX_RESULTS_PER_SEARCH, ENABLE_FULL_PAGINATION, MAX_PAGES_TO_FETCH
 
 # Import event system if available
 try:
-    from events import SearchEventType, create_scryfall_pagination_started_event, create_scryfall_page_fetched_event, create_scryfall_pagination_completed_event, create_error_event
+    from ..events import SearchEventType, create_scryfall_pagination_started_event, create_scryfall_page_fetched_event, create_scryfall_pagination_completed_event, create_error_event
 except ImportError:
     # Graceful fallback if events module is not available
     SearchEventType = None
