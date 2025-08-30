@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 
 if TYPE_CHECKING:
     from .models.evaluation import EvaluationResult
+    from .models.card import Card
 
 
 class BaseEvent(ABC):
@@ -194,6 +195,39 @@ class CardsFoundEvent(BaseEvent):
     @property
     def event_type(self) -> str:
         return "cards_found"
+
+
+# New: stream card IDs as they are fetched from Scryfall
+ 
+
+
+# New: stream full Card models as they are fetched from Scryfall
+class ScryfallCardsFetchedEvent(BaseEvent):
+    def __init__(self, cards: List["Card"], page: Optional[int] = None, total_received: Optional[int] = None):
+        super().__init__()
+        self.cards = cards
+        self.count = len(cards)
+        self.page = page
+        self.total_received = total_received
+
+        # Provide a minimal serializable view for UIs that rely on to_dict
+        try:
+            self.cards_data = [
+                {
+                    "id": getattr(c, "id", None),
+                    "name": getattr(c, "name", None),
+                    "mana_cost": getattr(c, "mana_cost", None),
+                    "type_line": getattr(c, "type_line", None),
+                    "scryfall_uri": getattr(c, "scryfall_uri", None),
+                }
+                for c in cards
+            ]
+        except Exception:
+            self.cards_data = []
+
+    @property
+    def event_type(self) -> str:
+        return "scryfall_cards_fetched"
 
 
 # Evaluation Events

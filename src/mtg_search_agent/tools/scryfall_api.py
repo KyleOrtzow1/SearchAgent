@@ -12,6 +12,7 @@ from ..events import (
     ScryfallPaginationStartedEvent,
     ScryfallPageFetchedEvent,
     ScryfallPaginationCompletedEvent,
+    ScryfallCardsFetchedEvent,
     ErrorOccurredEvent,
 )
 
@@ -74,10 +75,16 @@ class ScryfallAPI:
             response.raise_for_status()
             data = response.json()
             
+            # Emit full card models for real-time display (respecting max results)
+
             # Convert API response to our models
             cards = []
             for card_data in data.get('data', [])[:MAX_RESULTS_PER_SEARCH]:
                 cards.append(Card.from_scryfall(card_data))
+
+            # Emit full card models (after conversion), respecting max results
+            if self.events and cards:
+                self.events.emit(ScryfallCardsFetchedEvent(cards, page=1, total_received=len(cards)))
             
             return SearchResult(
                 query=search_query,
@@ -126,7 +133,8 @@ class ScryfallAPI:
                 
                 # Convert API response to our models
                 page_cards = []
-                for card_data in data.get('data', []):
+                data_cards = data.get('data', [])
+                for card_data in data_cards:
                     page_cards.append(Card.from_scryfall(card_data))
                 
                 all_cards.extend(page_cards)
@@ -134,6 +142,13 @@ class ScryfallAPI:
                 has_more = data.get('has_more', False)
                 pages_fetched += 1
                 
+                # Emit full card models for this page (trimmed similarly)
+                if self.events and page_cards:
+                    remaining_cards = max(0, MAX_RESULTS_PER_SEARCH - (len(all_cards) - len(page_cards)))
+                    emit_cards = page_cards[:remaining_cards] if remaining_cards < len(page_cards) else page_cards
+                    total_received_cards = min(len(all_cards), (len(all_cards) - len(page_cards)) + len(emit_cards))
+                    self.events.emit(ScryfallCardsFetchedEvent(emit_cards, page=page, total_received=total_received_cards))
+
                 # Emit page fetched event
                 if self.events:
                     self.events.emit(ScryfallPageFetchedEvent(page, len(page_cards), len(all_cards), total_cards))
