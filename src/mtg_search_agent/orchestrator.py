@@ -14,6 +14,9 @@ from .models.card import Card
 from .config import MAX_SEARCH_LOOPS, ENABLE_PARALLEL_EVALUATION, EVALUATION_BATCH_SIZE, TOP_CARDS_TO_DISPLAY, ENABLE_FULL_PAGINATION
 from .events import (
     SearchEventEmitter, SearchEventType,
+    # New streamlined event classes (optional - can be mixed with legacy functions)
+    SearchStartedEvent, SearchCompletedEvent, FinalResultsDisplayEvent,
+    # Legacy factory functions (for backward compatibility)
     create_search_started_event, create_iteration_started_event, create_query_generated_event,
     create_cards_found_event, create_cache_analyzed_event, create_evaluation_started_event,
     create_evaluation_progress_event, create_evaluation_completed_event,
@@ -59,11 +62,8 @@ class SearchOrchestrator:
         start_time = time.time()
         session_state = self._initialize_search_session(natural_language_request)
         
-        # Emit search started event
-        self.events.emit(
-            SearchEventType.SEARCH_STARTED,
-            create_search_started_event(natural_language_request, self.max_loops)
-        )
+        # Emit search started event using new streamlined API
+        self.events.emit(SearchStartedEvent(natural_language_request, self.max_loops))
         
         # Execute main search loop
         evaluation = None
@@ -112,16 +112,13 @@ class SearchOrchestrator:
         # Create final result with top N highest scoring cards from entire search
         final_result = self._create_final_result_with_top_cards(session_state["best_result"] or evaluation)
         
-        # Emit search completed event
-        self.events.emit(
-            SearchEventType.SEARCH_COMPLETED,
-            create_search_completed_event(
-                len(final_result.scored_cards),
-                final_result.average_score,
-                final_result.iteration_count,
-                total_time
-            )
-        )
+        # Emit search completed event using new streamlined API
+        self.events.emit(SearchCompletedEvent(
+            len(final_result.scored_cards),
+            final_result.average_score,
+            final_result.iteration_count,
+            total_time
+        ))
         
         return final_result
     
@@ -377,8 +374,5 @@ class SearchOrchestrator:
         # Get cache stats for the event
         cache_stats = self.get_cache_stats()
         
-        # Emit the final results display event
-        self.events.emit(
-            SearchEventType.FINAL_RESULTS_DISPLAY,
-            create_final_results_display_event(result, cache_stats)
-        )
+        # Emit the final results display event using new streamlined API
+        self.events.emit(FinalResultsDisplayEvent(result, cache_stats))

@@ -316,7 +316,6 @@ class EvaluationCompletedEvent(BaseEvent):
 class FinalResultsDisplayEvent(BaseEvent):
     def __init__(self, result: "EvaluationResult", cache_stats: Optional[Dict[str, int]] = None):
         super().__init__()
-        from .models.evaluation import EvaluationResult  # Import here to avoid circular imports
         
         # Serialize the scored cards data
         scored_cards_data = []
