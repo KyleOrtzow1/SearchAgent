@@ -13,11 +13,12 @@ from .models.search import SearchQuery
 from .models.card import Card
 from .config import MAX_SEARCH_LOOPS, ENABLE_PARALLEL_EVALUATION, EVALUATION_BATCH_SIZE, TOP_CARDS_TO_DISPLAY, ENABLE_FULL_PAGINATION
 from .events import (
-    SearchEventEmitter, SearchEventType,
-    create_search_started_event, create_iteration_started_event, create_query_generated_event,
-    create_cards_found_event, create_cache_analyzed_event, create_evaluation_started_event,
-    create_evaluation_progress_event, create_evaluation_completed_event,
-    create_iteration_completed_event, create_search_completed_event, create_final_results_display_event
+    SearchEventEmitter,
+    # New streamlined event classes
+    SearchStartedEvent, SearchCompletedEvent, FinalResultsDisplayEvent,
+    IterationStartedEvent, QueryGeneratedEvent, ScryfallSearchStartedEvent,
+    CardsFoundEvent, CacheAnalyzedEvent, EvaluationStartedEvent,
+    EvaluationCompletedEvent, IterationCompletedEvent,
 )
 
 
@@ -59,11 +60,8 @@ class SearchOrchestrator:
         start_time = time.time()
         session_state = self._initialize_search_session(natural_language_request)
         
-        # Emit search started event
-        self.events.emit(
-            SearchEventType.SEARCH_STARTED,
-            create_search_started_event(natural_language_request, self.max_loops)
-        )
+        # Emit search started event using new streamlined API
+        self.events.emit(SearchStartedEvent(natural_language_request, self.max_loops))
         
         # Execute main search loop
         evaluation = None
@@ -71,10 +69,7 @@ class SearchOrchestrator:
             iteration_start = time.time()
             
             # Emit iteration started event
-            self.events.emit(
-                SearchEventType.ITERATION_STARTED,
-                create_iteration_started_event(iteration, self.max_loops, format_time_elapsed(start_time))
-            )
+            self.events.emit(IterationStartedEvent(iteration, self.max_loops, format_time_elapsed(start_time)))
             
             # Execute search iteration steps
             query = await self._generate_query_step(natural_language_request, session_state, iteration)
@@ -112,16 +107,13 @@ class SearchOrchestrator:
         # Create final result with top N highest scoring cards from entire search
         final_result = self._create_final_result_with_top_cards(session_state["best_result"] or evaluation)
         
-        # Emit search completed event
-        self.events.emit(
-            SearchEventType.SEARCH_COMPLETED,
-            create_search_completed_event(
-                len(final_result.scored_cards),
-                final_result.average_score,
-                final_result.iteration_count,
-                total_time
-            )
-        )
+        # Emit search completed event using new streamlined API
+        self.events.emit(SearchCompletedEvent(
+            len(final_result.scored_cards),
+            final_result.average_score,
+            final_result.iteration_count,
+            total_time
+        ))
         
         return final_result
     
@@ -138,20 +130,16 @@ class SearchOrchestrator:
     
     async def _generate_query_step(self, natural_language_request: str, session_state: Dict, iteration: int) -> SearchQuery:
         """Execute query generation step"""
-        
         query = await self.query_agent.generate_query(
             natural_language_request=natural_language_request,
             previous_queries=session_state["previous_queries"],
             feedback=session_state["feedback"],
             use_streaming=self.enable_streaming
         )
-        
+
         # Emit query generated event
-        self.events.emit(
-            SearchEventType.QUERY_GENERATED,
-            create_query_generated_event(query.query, query.explanation or "", iteration)
-        )
-        
+        self.events.emit(QueryGeneratedEvent(query.query, query.explanation or "", iteration))
+
         # Store the query
         session_state["previous_queries"].append(query.query)
         return query
@@ -159,22 +147,19 @@ class SearchOrchestrator:
     def _execute_scryfall_search_step(self, query: SearchQuery, iteration: int):
         """Execute Scryfall search step"""
         # Emit scryfall search started event
-        self.events.emit(SearchEventType.SCRYFALL_SEARCH_STARTED, {'query': query.query})
+        self.events.emit(ScryfallSearchStartedEvent(query.query))
         
         search_result = self.scryfall_api.search_cards(query)
         
         # Emit cards found event
         if search_result.cards:
             paginated = search_result.total_cards > len(search_result.cards) if search_result.total_cards else False
-            self.events.emit(
-                SearchEventType.CARDS_FOUND,
-                create_cards_found_event(
-                    len(search_result.cards),
-                    search_result.total_cards or len(search_result.cards),
-                    paginated,
-                    iteration
-                )
-            )
+            self.events.emit(CardsFoundEvent(
+                len(search_result.cards),
+                search_result.total_cards or len(search_result.cards),
+                paginated,
+                iteration
+            ))
         
         return search_result
     
@@ -182,19 +167,16 @@ class SearchOrchestrator:
         """Analyze cache and separate new cards from cached cards"""
         new_cards = []
         cached_scores = []
-        
+
         for card in cards:
             if card.id in self.card_cache:
                 cached_scores.append(self.card_cache[card.id])
             else:
                 new_cards.append(card)
-        
+
         # Emit cache analyzed event
-        self.events.emit(
-            SearchEventType.CACHE_ANALYZED,
-            create_cache_analyzed_event(len(new_cards), len(cached_scores))
-        )
-        
+        self.events.emit(CacheAnalyzedEvent(len(new_cards), len(cached_scores)))
+
         return new_cards, cached_scores
     
     async def _evaluate_cards_step(
@@ -206,42 +188,27 @@ class SearchOrchestrator:
         total_cards: int
     ) -> EvaluationResult:
         """Execute card evaluation step"""
-        
         # Emit evaluation started event
         batch_size = EVALUATION_BATCH_SIZE if ENABLE_PARALLEL_EVALUATION else len(cards)
-        self.events.emit(
-            SearchEventType.EVALUATION_STARTED,
-            create_evaluation_started_event(len(cards), batch_size, ENABLE_PARALLEL_EVALUATION)
-        )
-        
-        # Create progress callback for evaluation
-        def progress_callback(completed: int, total: int):
-            self.events.emit(
-                SearchEventType.EVALUATION_BATCH_PROGRESS,
-                create_evaluation_progress_event(completed, total, completed * batch_size)
-            )
-        
+        self.events.emit(EvaluationStartedEvent(len(cards), batch_size, ENABLE_PARALLEL_EVALUATION))
+
         # Evaluate cards
         start_eval_time = time.time()
-        
-        if ENABLE_PARALLEL_EVALUATION:
-            lightweight_evaluation = await self.evaluation_agent.evaluate_cards_parallel(
-                natural_language_request, cards, iteration,
-                previous_queries, self.enable_streaming, total_cards
-            )
-        else:
-            lightweight_evaluation = await self.evaluation_agent.evaluate_cards_bulk(
-                natural_language_request, cards, iteration,
-                previous_queries, self.enable_streaming, total_cards
-            )
-        
+
+        # Let the evaluation agent choose the best strategy
+        lightweight_evaluation = await self.evaluation_agent.evaluate_cards(
+            natural_language_request=natural_language_request,
+            cards=cards,
+            iteration_count=iteration,
+            previous_queries=previous_queries,
+            use_streaming=self.enable_streaming,
+            total_cards=total_cards
+        )
+
         # Emit evaluation completed event
         eval_duration = format_time_elapsed(start_eval_time)
-        self.events.emit(
-            SearchEventType.EVALUATION_COMPLETED,
-            create_evaluation_completed_event(len(cards), lightweight_evaluation.average_score, eval_duration)
-        )
-        
+        self.events.emit(EvaluationCompletedEvent(len(cards), lightweight_evaluation.average_score, eval_duration))
+
         # Convert lightweight result to full result
         return self._convert_lightweight_to_full_result(lightweight_evaluation, cards)
     
@@ -303,16 +270,13 @@ class SearchOrchestrator:
         duration = format_time_elapsed(iteration_start)
         
         # Emit iteration completed event
-        self.events.emit(
-            SearchEventType.ITERATION_COMPLETED,
-            create_iteration_completed_event(
-                evaluation.iteration_count,
-                evaluation.average_score,
-                is_new_best,
-                is_satisfied,
-                duration
-            )
-        )
+        self.events.emit(IterationCompletedEvent(
+            evaluation.iteration_count,
+            evaluation.average_score,
+            is_new_best,
+            is_satisfied,
+            duration
+        ))
         
         # Return whether to stop the search
         return is_satisfied
@@ -377,8 +341,5 @@ class SearchOrchestrator:
         # Get cache stats for the event
         cache_stats = self.get_cache_stats()
         
-        # Emit the final results display event
-        self.events.emit(
-            SearchEventType.FINAL_RESULTS_DISPLAY,
-            create_final_results_display_event(result, cache_stats)
-        )
+        # Emit the final results display event using new streamlined API
+        self.events.emit(FinalResultsDisplayEvent(result, cache_stats))

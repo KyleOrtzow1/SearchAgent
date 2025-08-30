@@ -12,12 +12,12 @@ load_dotenv()
 from ..models.search import SearchQuery, TagSuggestion
 from ..tools.tag_search import TagSearchTool
 
-# Import event system if available
-try:
-    from ..events import SearchEventType, create_query_generation_started_event, create_query_streaming_progress_event, create_error_event
-except ImportError:
-    # Graceful fallback if events module is not available
-    SearchEventType = None
+# Import new event classes
+from ..events import (
+    QueryGenerationStartedEvent,
+    QueryStreamingProgressEvent,
+    ErrorOccurredEvent,
+)
 
 # Constants for better maintainability
 QUERY_TRUNCATE_LENGTH = 60
@@ -298,13 +298,11 @@ class QueryAgent:
         Args:
             partial_query: Partial query object with query and explanation attributes
         """
-        if self.events and SearchEventType:
-            # Emit streaming progress event instead of printing
+        if self.events:
+            # Emit streaming progress event using new API
             query = getattr(partial_query, 'query', '') or ''
             explanation = getattr(partial_query, 'explanation', '') or ''
-            
-            self.events.emit(SearchEventType.QUERY_STREAMING_PROGRESS,
-                           create_query_streaming_progress_event(query, explanation))
+            self.events.emit(QueryStreamingProgressEvent(query, explanation))
     
     async def _execute_with_streaming(self, prompt: str) -> SearchQuery:
         """
@@ -317,9 +315,8 @@ class QueryAgent:
             SearchQuery object with Scryfall syntax
         """
         # Emit query generation started event
-        if self.events and SearchEventType:
-            self.events.emit(SearchEventType.QUERY_GENERATION_STARTED,
-                           create_query_generation_started_event("", 0))  # We don't have request/iteration here
+        if self.events:
+            self.events.emit(QueryGenerationStartedEvent("", 0))  # No request/iteration context here
         
         try:
             async with query_agent.run_stream(prompt, deps=self.deps) as result:
@@ -331,9 +328,8 @@ class QueryAgent:
             
         except Exception as e:
             # Emit error event instead of printing
-            if self.events and SearchEventType:
-                self.events.emit(SearchEventType.ERROR_OCCURRED,
-                               create_error_event("query_streaming_error", str(e), {"fallback": "non_streaming"}))
+            if self.events:
+                self.events.emit(ErrorOccurredEvent("query_streaming_error", str(e), {"fallback": "non_streaming"}))
             return await self._execute_without_streaming(prompt)
     
     async def _execute_without_streaming(self, prompt: str) -> SearchQuery:
@@ -347,9 +343,8 @@ class QueryAgent:
             SearchQuery object with Scryfall syntax
         """
         # Emit query generation started event
-        if self.events and SearchEventType:
-            self.events.emit(SearchEventType.QUERY_GENERATION_STARTED,
-                           create_query_generation_started_event("", 0))  # We don't have request/iteration here
+        if self.events:
+            self.events.emit(QueryGenerationStartedEvent("", 0))  # No request/iteration context here
         
         result = await query_agent.run(prompt, deps=self.deps)
         return result.output

@@ -34,7 +34,27 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from mtg_search_agent import SearchOrchestrator
 from mtg_search_agent.models.evaluation import EvaluationResult
-from mtg_search_agent.events import SearchEventType
+from mtg_search_agent.events import (
+    SearchStartedEvent,
+    IterationStartedEvent,
+    QueryGenerationStartedEvent,
+    QueryStreamingProgressEvent,
+    QueryGeneratedEvent,
+    ScryfallPaginationStartedEvent,
+    ScryfallPageFetchedEvent,
+    ScryfallPaginationCompletedEvent,
+    CardsFoundEvent,
+    EvaluationStrategySelectedEvent,
+    EvaluationStartedEvent,
+    EvaluationStreamingProgressEvent,
+    EvaluationParallelMetricsEvent,
+    EvaluationBatchProgressEvent,
+    EvaluationCompletedEvent,
+    IterationCompletedEvent,
+    SearchCompletedEvent,
+    FinalResultsDisplayEvent,
+    ErrorOccurredEvent,
+)
 
 # Load environment variables
 load_dotenv()
@@ -104,11 +124,11 @@ class MTGSearchCLI:
     def _setup_event_handlers(self):
         """Set up event handlers for clean progress display"""
         
-        def on_search_started(data):
+        def on_search_started(event: SearchStartedEvent):
             self.start_time = time.time()
             self.search_active = True
             self.search_history = []
-            self.max_iterations = data.get('max_iterations', 5)
+            self.max_iterations = getattr(event, 'max_iterations', 5)
             
             # Simple status display without spinners
             self._update_status("[cyan]Starting search...[/cyan]")
@@ -116,38 +136,38 @@ class MTGSearchCLI:
             # Track the first activity
             self.search_history.append("Search initialized")
             
-        def on_iteration_started(data):
-            self.current_iteration = data['iteration']
-            self.search_history.append(f"-> Iteration {data['iteration']}/{data['max_iterations']}")
+        def on_iteration_started(event: IterationStartedEvent):
+            self.current_iteration = event.iteration
+            self.search_history.append(f"-> Iteration {event.iteration}/{event.max_iterations}")
             
             elapsed = time.time() - self.start_time if self.start_time else 0
             elapsed_str = f"{elapsed:.1f}s"
             
             # Show concise current status without repeating history
-            status_text = f"[cyan]Iteration {data['iteration']}/{data['max_iterations']} ({elapsed_str})[/cyan]"
+            status_text = f"[cyan]Iteration {event.iteration}/{event.max_iterations} ({elapsed_str})[/cyan]"
             self._update_status(status_text)
         
-        def on_query_generated(data):
-            self.current_query = data.get('scryfall_query', data.get('query', 'Unknown'))
+        def on_query_generated(event: QueryGeneratedEvent):
+            self.current_query = getattr(event, 'scryfall_query', None) or getattr(event, 'query', 'Unknown')
             self.search_history.append(f"Query: {self.current_query}")
             status_text = f"[blue]Generated: {self.current_query}[/blue]"
             self._update_status(status_text)
         
-        def on_cards_found(data):
-            self.cards_found = data['count']
-            self.search_history.append(f"Found {data['count']} cards")
-            status_text = f"[green]Found {data['count']} cards[/green]"
+        def on_cards_found(event: CardsFoundEvent):
+            self.cards_found = event.count
+            self.search_history.append(f"Found {event.count} cards")
+            status_text = f"[green]Found {event.count} cards[/green]"
             self._update_status(status_text)
         
-        def on_evaluation_started(data):
-            self.evaluation_total = data['card_count']
+        def on_evaluation_started(event: EvaluationStartedEvent):
+            self.evaluation_total = event.card_count
             self.evaluation_progress = 0
-            self.search_history.append(f"Evaluating {data['card_count']} cards")
-            status_text = f"[yellow]Evaluating {data['card_count']} cards...[/yellow]"
+            self.search_history.append(f"Evaluating {event.card_count} cards")
+            status_text = f"[yellow]Evaluating {event.card_count} cards...[/yellow]"
             self._update_status(status_text)
         
-        def on_evaluation_progress(data):
-            self.evaluation_progress = data.get('progress_percent', 0)
+        def on_evaluation_progress(event: EvaluationBatchProgressEvent):
+            self.evaluation_progress = getattr(event, 'progress_percent', 0)
             # Throttle: print only on 5% changes
             current_pct = int(self.evaluation_progress)
             if current_pct // 5 != self._last_eval_progress_printed // 5:
@@ -156,18 +176,18 @@ class MTGSearchCLI:
                 self._update_status(status_text)
                 self._last_eval_progress_printed = current_pct
         
-        def on_evaluation_completed(data):
-            self.current_score = data['average_score']
+        def on_evaluation_completed(event: EvaluationCompletedEvent):
+            self.current_score = event.average_score
             self.search_history.append(f"Score: {self.current_score:.1f}/10")
             
             status_text = f"[magenta]DONE Score: {self.current_score:.1f}/10[/magenta]"
             self._update_status(status_text)
         
-        def on_iteration_completed(data):
-            score = data['score']
-            iteration = data['iteration']
+        def on_iteration_completed(event: IterationCompletedEvent):
+            score = event.score
+            iteration = event.iteration
             
-            if data['is_best']:
+            if event.is_best:
                 self.best_score = score
                 self.search_history.append(f"NEW BEST: {score:.1f}/10")
                 
@@ -178,9 +198,9 @@ class MTGSearchCLI:
                 status_text = f"[green]DONE Iteration {iteration}: {score:.1f}/10[/green]"
                 self._update_status(status_text)
         
-        def on_search_completed(data):
+        def on_search_completed(event: SearchCompletedEvent):
             self.search_active = False
-            final_score = data.get('final_score', self.best_score)
+            final_score = getattr(event, 'final_score', None) or self.best_score
             elapsed = time.time() - self.start_time if self.start_time else 0
             
             # Add completion info to history
@@ -199,12 +219,12 @@ class MTGSearchCLI:
             
             threading.Thread(target=clear_after_delay, daemon=True).start()
         
-        def on_query_generation_started(data):
+        def on_query_generation_started(event: QueryGenerationStartedEvent):
             self._update_status("[blue]Generating search query...[/blue]")
         
-        def on_query_streaming_progress(data):
-            query = data.get('partial_query', '')
-            explanation = data.get('partial_explanation', '')
+        def on_query_streaming_progress(event: QueryStreamingProgressEvent):
+            query = getattr(event, 'partial_query', '')
+            explanation = getattr(event, 'partial_explanation', '')
             if query:
                 # Throttle frequent updates and avoid repetition; show full query
                 now = time.time()
@@ -213,31 +233,31 @@ class MTGSearchCLI:
                     self._last_status_time = now
                     self._last_query_stream_text = query
         
-        def on_scryfall_pagination_started(data):
-            query = data['query']
+        def on_scryfall_pagination_started(event: ScryfallPaginationStartedEvent):
+            query = event.query
             self._update_status(f"[cyan]Fetching complete results for: {query}[/cyan]")
         
-        def on_scryfall_page_fetched(data):
-            page = data['page']
-            cards_so_far = data['total_cards_so_far']
-            total_available = data['total_available']
-            progress = data.get('progress_percent', 0)
+        def on_scryfall_page_fetched(event: ScryfallPageFetchedEvent):
+            page = event.page
+            cards_so_far = event.total_cards_so_far
+            total_available = event.total_available
+            progress = getattr(event, 'progress_percent', 0)
             self._update_status(f"[cyan]Fetched page {page}: {cards_so_far}/{total_available} cards ({progress:.0f}%)[/cyan]")
         
-        def on_scryfall_pagination_completed(data):
-            total_cards = data['total_cards']
-            pages = data['pages_fetched']
-            limited = data['limited_by_max']
+        def on_scryfall_pagination_completed(event: ScryfallPaginationCompletedEvent):
+            total_cards = event.total_cards
+            pages = event.pages_fetched
+            limited = event.limited_by_max
             status_text = f"[green]Fetched {total_cards} cards from {pages} page(s)[/green]"
             if limited:
                 status_text += " [yellow](limited by max results)[/yellow]"
             self._update_status(status_text)
         
-        def on_evaluation_streaming_progress(data):
-            evaluated = data['cards_evaluated']
-            total = data['total_cards']
-            progress = data.get('progress_percent', 0)
-            batch_info = data.get('batch_index'), data.get('total_batches')
+        def on_evaluation_streaming_progress(event: EvaluationStreamingProgressEvent):
+            evaluated = event.cards_evaluated
+            total = event.total_cards
+            progress = getattr(event, 'progress_percent', 0)
+            batch_info = getattr(event, 'batch_index', None), getattr(event, 'total_batches', None)
             
             if batch_info[0] is not None and batch_info[1] is not None:
                 batch_text = f"Batch {batch_info[0] + 1}/{batch_info[1]}: "
@@ -245,36 +265,36 @@ class MTGSearchCLI:
                 batch_text = ""
             
             score_text = ""
-            if data.get('current_score'):
-                score_text = f" (score: {data['current_score']:.1f})"
+            if getattr(event, 'current_score', None):
+                score_text = f" (score: {event.current_score:.1f})"
             
             self._update_status(f"[yellow]{batch_text}Evaluating {evaluated}/{total} cards ({progress:.0f}%){score_text}[/yellow]")
         
-        def on_error_occurred(data):
-            error_type = data.get('error_type', 'unknown')
-            message = data.get('message', 'An error occurred')
+        def on_error_occurred(event: ErrorOccurredEvent):
+            error_type = getattr(event, 'error_type', 'unknown')
+            message = getattr(event, 'message', 'An error occurred')
             # Show brief error message
             self._update_status(f"[red]ERROR {error_type}: {message}[/red]")
         
-        def on_evaluation_strategy_selected(data):
-            strategy = data.get('strategy', 'unknown')
-            card_count = data.get('card_count', 0)
-            reason = data.get('reason', '')
+        def on_evaluation_strategy_selected(event: EvaluationStrategySelectedEvent):
+            strategy = getattr(event, 'strategy', 'unknown')
+            card_count = getattr(event, 'card_count', 0)
+            reason = getattr(event, 'reason', '')
             
             if strategy == "parallel_batch":
-                batch_size = data.get('batch_size', 0)
+                batch_size = getattr(event, 'batch_size', 0)
                 self._update_status(f"[cyan]PARALLEL: {card_count} cards (batch size: {batch_size})[/cyan]")
             elif strategy == "parallel_execution":
-                total_batches = data.get('total_batches', 0)
-                batch_size = data.get('batch_size', 0)
+                total_batches = getattr(event, 'total_batches', 0)
+                batch_size = getattr(event, 'batch_size', 0)
                 self._update_status(f"[cyan]PROCESSING: {card_count} cards in {total_batches} batches of {batch_size}[/cyan]")
             elif strategy == "bulk_evaluation":
                 self._update_status(f"[cyan]BULK EVAL: {card_count} cards ({reason})[/cyan]")
         
-        def on_evaluation_parallel_metrics(data):
-            total_batches = data.get('total_batches', 0)
-            elapsed_time = data.get('elapsed_time', 0)
-            time_saved = data.get('time_saved')
+        def on_evaluation_parallel_metrics(event: EvaluationParallelMetricsEvent):
+            total_batches = getattr(event, 'total_batches', 0)
+            elapsed_time = getattr(event, 'elapsed_time', 0)
+            time_saved = getattr(event, 'time_saved', None)
             
             status_text = f"[green]ALL {total_batches} batches completed in {elapsed_time:.1f}s[/green]"
             if time_saved and time_saved > 0:
@@ -284,27 +304,28 @@ class MTGSearchCLI:
         def on_final_results_display(data):
             """No-op to avoid duplicate final output; CLI renders results once."""
             return
-        
-        # Register event handlers
-        self.orchestrator.events.on(SearchEventType.SEARCH_STARTED, on_search_started)
-        self.orchestrator.events.on(SearchEventType.ITERATION_STARTED, on_iteration_started)
-        self.orchestrator.events.on(SearchEventType.QUERY_GENERATION_STARTED, on_query_generation_started)
-        self.orchestrator.events.on(SearchEventType.QUERY_STREAMING_PROGRESS, on_query_streaming_progress)
-        self.orchestrator.events.on(SearchEventType.QUERY_GENERATED, on_query_generated)
-        self.orchestrator.events.on(SearchEventType.SCRYFALL_PAGINATION_STARTED, on_scryfall_pagination_started)
-        self.orchestrator.events.on(SearchEventType.SCRYFALL_PAGE_FETCHED, on_scryfall_page_fetched)
-        self.orchestrator.events.on(SearchEventType.SCRYFALL_PAGINATION_COMPLETED, on_scryfall_pagination_completed)
-        self.orchestrator.events.on(SearchEventType.CARDS_FOUND, on_cards_found)
-        self.orchestrator.events.on(SearchEventType.EVALUATION_STRATEGY_SELECTED, on_evaluation_strategy_selected)
-        self.orchestrator.events.on(SearchEventType.EVALUATION_STARTED, on_evaluation_started)
-        self.orchestrator.events.on(SearchEventType.EVALUATION_STREAMING_PROGRESS, on_evaluation_streaming_progress)
-        self.orchestrator.events.on(SearchEventType.EVALUATION_PARALLEL_METRICS, on_evaluation_parallel_metrics)
-        self.orchestrator.events.on(SearchEventType.EVALUATION_BATCH_PROGRESS, on_evaluation_progress)
-        self.orchestrator.events.on(SearchEventType.EVALUATION_COMPLETED, on_evaluation_completed)
-        self.orchestrator.events.on(SearchEventType.ITERATION_COMPLETED, on_iteration_completed)
-        self.orchestrator.events.on(SearchEventType.SEARCH_COMPLETED, on_search_completed)
-        self.orchestrator.events.on(SearchEventType.FINAL_RESULTS_DISPLAY, on_final_results_display)
-        self.orchestrator.events.on(SearchEventType.ERROR_OCCURRED, on_error_occurred)
+
+        # Register event handlers using new string event types
+        ev = self.orchestrator.events
+        ev.on("search_started", on_search_started)
+        ev.on("iteration_started", on_iteration_started)
+        ev.on("query_generation_started", on_query_generation_started)
+        ev.on("query_streaming_progress", on_query_streaming_progress)
+        ev.on("query_generated", on_query_generated)
+        ev.on("scryfall_pagination_started", on_scryfall_pagination_started)
+        ev.on("scryfall_page_fetched", on_scryfall_page_fetched)
+        ev.on("scryfall_pagination_completed", on_scryfall_pagination_completed)
+        ev.on("cards_found", on_cards_found)
+        ev.on("evaluation_strategy_selected", on_evaluation_strategy_selected)
+        ev.on("evaluation_started", on_evaluation_started)
+        ev.on("evaluation_streaming_progress", on_evaluation_streaming_progress)
+        ev.on("evaluation_parallel_metrics", on_evaluation_parallel_metrics)
+        ev.on("evaluation_batch_progress", on_evaluation_progress)
+        ev.on("evaluation_completed", on_evaluation_completed)
+        ev.on("iteration_completed", on_iteration_completed)
+        ev.on("search_completed", on_search_completed)
+        ev.on("final_results_display", on_final_results_display)
+        ev.on("error_occurred", on_error_occurred)
 
     def show_banner(self):
         """Display the application banner"""
