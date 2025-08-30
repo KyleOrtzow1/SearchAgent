@@ -16,21 +16,30 @@ A multi-agent system for finding Magic: The Gathering cards using natural langua
 ### Option 1: Install from Source (Development)
 
 1. **Clone the repository**:
-   ```bash
-   git clone <repository-url>
-   cd SearchAgent
-   ```
+    ```bash
+    git clone <repository-url>
+    cd SearchAgent
+    ```
 
-2. **Install in development mode**:
-   ```bash
-   pip install -e .
-   ```
+2. **Create a virtual environment and install in development mode**:
+    - Windows (PowerShell):
+       ```powershell
+       py -m venv .venv
+       .venv\Scripts\Activate.ps1
+       pip install -e .
+       ```
+    - macOS/Linux:
+       ```bash
+       python3 -m venv .venv
+       source .venv/bin/activate
+       pip install -e .
+       ```
 
 3. **Set up OpenAI API Key**:
-   ```bash
-   # Create .env file with your API key
-   echo "OPENAI_API_KEY=your_api_key_here" > .env
-   ```
+    Create a `.env` file in the project root with:
+    ```
+    OPENAI_API_KEY=your_api_key_here
+    ```
 
 ### Option 2: Install as Package
 
@@ -77,6 +86,45 @@ result = await orchestrator.search("cheap red creature with haste")
 orchestrator.print_final_results(result)
 ```
 
+### Event System (New API)
+
+This project uses an event-driven API for progress updates. Listeners receive event-class instances and register by event_type string.
+
+Key points:
+- Emitters deliver BaseEvent subclasses (no dict payloads).
+- Register listeners with: `orchestrator.events.on("event_type", callback)`.
+- Callback signature: `def handler(event: SomeEvent) -> None`.
+
+Minimal example:
+
+```python
+from mtg_search_agent import SearchOrchestrator
+from mtg_search_agent.events import SearchStartedEvent, SearchCompletedEvent
+
+orch = SearchOrchestrator()
+
+def on_started(event: SearchStartedEvent):
+   print(f"Search started (max {event.max_iterations}) for: {event.query}")
+
+def on_completed(event: SearchCompletedEvent):
+   print(f"Done in {event.total_duration}, avg score {event.final_score:.1f}")
+
+orch.events.on("search_started", on_started)
+orch.events.on("search_completed", on_completed)
+
+# later inside an async context
+# result = await orch.search("blue instant that counters spells and draws cards")
+```
+
+Common event types you can handle:
+- search_started, search_completed
+- iteration_started, iteration_completed
+- query_generation_started, query_streaming_progress, query_generated
+- scryfall_pagination_started, scryfall_page_fetched, scryfall_pagination_completed
+- cards_found, cache_analyzed
+- evaluation_strategy_selected, evaluation_started, evaluation_streaming_progress, evaluation_parallel_metrics, evaluation_completed
+- final_results_display, error_occurred
+
 ## Project Structure
 
 ```
@@ -110,6 +158,8 @@ SearchAgent/
 3. **Scryfall API** searches for matching cards
 4. **Evaluation Agent** scores each card's relevance (1-10) to your original request
 5. **Orchestrator** manages up to 5 refinement loops until good results are found
+
+Behind the scenes, the orchestrator emits events at each step so UIs (like the CLI) can display progress without coupling to core logic.
 
 ## Example Queries
 
@@ -165,7 +215,13 @@ The project follows a clean, modular architecture:
 - **Evaluation Agent**: Scores card relevance using GPT
 - **Tools**: Scryfall API integration and tag fuzzy matching
 - **Models**: Pydantic data structures for type safety
-- **Events**: Event-driven progress tracking and display
+- **Events**: Event-driven progress tracking and display (event-class-only API)
+
+### Breaking Changes (for upgraders)
+
+- The legacy event enum and factory functions were removed. Use event classes and string event types instead:
+   - Before: `events.on(SearchEventType.SEARCH_STARTED, handler)` and `emit(SearchEventType.X, create_*_event(...))`
+   - Now: `events.on("search_started", handler)` and `emit(SearchStartedEvent(...))`
 
 ## API Rate Limiting
 
@@ -179,4 +235,4 @@ The system respects Scryfall's API guidelines with 100ms delays between requests
 - **python-dotenv**: Environment variable management
 - **fuzzywuzzy**: Fuzzy string matching for tags
 - **rich**: Beautiful CLI output formatting
-- **click**: Command-line interface framework
+- **click**: Command-line interface framework (optional)
