@@ -16,7 +16,7 @@ class Card(BaseModel):
     color_identity: List[str] = []
     keywords: List[str] = []
     legalities: Dict[str, str] = {}
-    set_code: str
+    set: str
     set_name: str
     rarity: str
     collector_number: str
@@ -41,7 +41,7 @@ class Card(BaseModel):
             color_identity=data.get("color_identity", []),
             keywords=data.get("keywords", []),
             legalities=data.get("legalities", {}),
-            set_code=data["set"],
+            set=data["set"],
             set_name=data["set_name"],
             rarity=data["rarity"],
             collector_number=data["collector_number"],

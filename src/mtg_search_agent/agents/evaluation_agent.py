@@ -22,6 +22,9 @@ from ..events import (
     EvaluationParallelMetricsEvent,
 )
 
+# Import prompt loader
+from ..prompts import load_feedback_synthesis_prompt
+
 
 # Create the evaluation agent with lightweight output
 lightweight_evaluation_agent = Agent(
@@ -33,19 +36,7 @@ lightweight_evaluation_agent = Agent(
 feedback_synthesis_agent = Agent(
     model=OpenAIResponsesModel('gpt-5-mini'),
     output_type=str,
-    system_prompt="""You are an expert at synthesizing multiple feedback messages into clear, actionable recommendations.
-
-Your task is to combine feedback from multiple card evaluation batches into a single coherent recommendation for improving MTG card search queries.
-
-Guidelines:
-1. Synthesize all the feedback into 1-2 concise sentences
-2. Focus on the most common or important suggestions
-3. Be specific about what changes would improve the search
-4. Use MTG terminology appropriately
-5. Avoid redundant or conflicting advice
-6. Prioritize actionable suggestions over general statements
-
-Return only the synthesized feedback text - no introduction or explanation."""
+    system_prompt=load_feedback_synthesis_prompt()
 )
 
 
@@ -109,12 +100,18 @@ class EvaluationAgent:
             "",
             f"This is iteration {iteration_count} of the search process.",
             "",
+            "IMPORTANT: When evaluating color identity requests, remember that color identity is INCLUSIVE:",
+            "- A white identity request includes both white cards AND colorless cards",
+            "- A red identity request includes both red cards AND colorless cards", 
+            "- Multi-color identities (like Esper) include all component colors AND colorless cards",
+            "- Colorless cards can be played in any Commander deck and are relevant for most color identity searches",
+            "",
             "Evaluate each card's relevance to the original request on a scale of 1-10.",
             "Score 1-3: Not relevant, Score 4-6: Somewhat relevant, Score 7-10: Highly relevant",
             "",
             "Return a LightweightAgentResult with:",
             "- scored_cards: List with card_id (string), name (string), score (integer 1-10), and reasoning (string) for each card",
-            f"- feedback_for_query_agent: If scores are low OR fewer than {TOP_CARDS_TO_DISPLAY} total cards found (currently {total_cards} total), provide specific suggestions for broader search terms",
+            f"- feedback_for_query_agent: If scores are low OR fewer than {TOP_CARDS_TO_DISPLAY} total cards found (currently {total_cards} total), provide brief general suggestions (1-2 sentences) on how to adjust the search approach. Focus on conceptual changes, do not give specific query syntax.",
             ""
         ])
         

@@ -1,7 +1,7 @@
 # MTG Search Agent - TODO List
 
 ## Bug Fixes
-- [ ] Card model: 'set_code' is not a valid field in Scryfall API responses — update the model to use the correct field name (e.g., 'set') and adjust parsing accordingly
+- [X] Card model: 'set_code' is not a valid field in Scryfall API responses — update the model to use the correct field name (e.g., 'set') and adjust parsing accordingly
 
 ## Configuration Improvements
 
