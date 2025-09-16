@@ -281,7 +281,7 @@ class SearchOrchestrator:
         # Return whether to stop the search
         return is_satisfied
     
-    def _create_final_result_with_top_cards(self, result: EvaluationResult) -> EvaluationResult:
+    def _create_final_result_with_top_cards(self, result: Optional[EvaluationResult]) -> EvaluationResult:
         """Create final result with top N highest scoring cards from entire search cache"""
         # Get all cached cards and sort by score descending
         all_cached_cards = list(self.card_cache.values())
@@ -291,17 +291,21 @@ class SearchOrchestrator:
         if top_cards:
             top_scores = [card.score for card in top_cards]
             top_average = sum(top_scores) / len(top_scores)
-        else:
+        elif result:
             top_average = result.average_score
             top_cards = result.scored_cards[:TOP_CARDS_TO_DISPLAY]
-        
+        else:
+            # No results found at all
+            top_average = 0.0
+            top_cards = []
+
         # Create new result with top cards
         return EvaluationResult(
             scored_cards=top_cards,
             average_score=top_average,
-            should_continue=result.should_continue,
-            feedback_for_query_agent=result.feedback_for_query_agent,
-            iteration_count=result.iteration_count
+            should_continue=result.should_continue if result else False,
+            feedback_for_query_agent=result.feedback_for_query_agent if result else "No cards found matching the search criteria.",
+            iteration_count=result.iteration_count if result else 1
         )
     
     def _convert_lightweight_to_full_result(self, lightweight_result: LightweightEvaluationResult, cards: List[Card]) -> EvaluationResult:

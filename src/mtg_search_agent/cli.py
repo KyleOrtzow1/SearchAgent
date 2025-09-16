@@ -29,9 +29,6 @@ from datetime import datetime
 import time
 from dotenv import load_dotenv
 
-# Add the src directory to Python path to import the local package
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-
 from mtg_search_agent import SearchOrchestrator
 from mtg_search_agent.models.evaluation import EvaluationResult
 from mtg_search_agent.events import (

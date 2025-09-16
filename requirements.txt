@@ -1,8 +1,0 @@
-pydantic-ai
-openai
-requests
-python-dotenv
-fuzzywuzzy[speedup]
-typing-extensions
-rich
-click

@@ -1,5 +1,5 @@
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from .card import Card
 
 
@@ -14,7 +14,7 @@ class SearchResult(BaseModel):
     """Represents the result of a card search"""
     query: SearchQuery
     cards: List[Card]
-    total_cards: int
+    total_cards: int = Field(ge=0, description="Total number of cards found (must be >= 0)")
     has_more: bool = False
     
     

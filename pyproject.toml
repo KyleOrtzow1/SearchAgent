@@ -6,25 +6,33 @@ build-backend = "setuptools.build_meta"
 name = "mtg-search-agent"
 version = "1.0.0"
 authors = [
-  { name="Kyle Ortzow", email="you@example.com" },
+  { name="Kyle Ortzow", email="kyleortzow@gmail.com" },
 ]
 description = "A multi-agent system for finding Magic: The Gathering cards using natural language."
 readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Games/Entertainment",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "pydantic-ai",
-    "openai",
-    "requests",
-    "python-dotenv",
-    "fuzzywuzzy[speedup]",
-    "typing-extensions",
-    "rich",
-    "click",
+    "pydantic-ai>=1.0.0,<2.0.0",
+    "openai>=1.0.0",
+    "requests>=2.25.0",
+    "python-dotenv>=0.19.0",
+    "fuzzywuzzy[speedup]>=0.18.0",
+    "typing-extensions>=4.0.0",
+    "rich>=12.0.0",
+    "click>=8.0.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -32,3 +40,37 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "mtg_search_agent" = ["tags.json"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0", "black>=22.0.0", "flake8>=4.0.0", "mypy>=0.991"]
+test = ["pytest>=7.0.0", "pytest-cov>=4.0.0", "pytest-asyncio>=0.21.0"]
+
+[project.scripts]
+mtg-search = "mtg_search_agent.cli:main"
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--cov=src/mtg_search_agent",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+src_paths = ["src", "tests"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

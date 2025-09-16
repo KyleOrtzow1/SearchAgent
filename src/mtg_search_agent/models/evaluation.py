@@ -16,8 +16,8 @@ class CardScore(BaseCardScore):
 
 class LightweightCardScore(BaseCardScore):
     """Lightweight card score with only essential data for evaluation"""
-    card_id: str = Field(description="Scryfall card ID")
-    name: str = Field(description="Card name")
+    card_id: str = Field(min_length=1, description="Scryfall card ID")
+    name: str = Field(min_length=1, description="Card name")
 
 
 # Type variable for generic evaluation results

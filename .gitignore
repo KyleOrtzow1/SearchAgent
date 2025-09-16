@@ -176,3 +176,5 @@ Thumbs.db
 temp/
 
 CLAUDE.md
+.claude/*
+.claude/

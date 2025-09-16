@@ -24,6 +24,16 @@ class Card(BaseModel):
     scryfall_uri: str
     image_uris: Optional[Dict[str, str]] = None
     prices: Optional[Dict[str, Optional[str]]] = None
+
+    def __hash__(self) -> int:
+        """Make Card hashable using its unique id"""
+        return hash(self.id)
+
+    def __eq__(self, other) -> bool:
+        """Override equality to use id for comparison"""
+        if not isinstance(other, Card):
+            return False
+        return self.id == other.id
     
     @classmethod
     def from_scryfall(cls, data: Dict[str, Any]) -> "Card":
