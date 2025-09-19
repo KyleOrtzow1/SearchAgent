@@ -258,4 +258,4 @@ The system respects Scryfall's API guidelines with 100ms delays between requests
 - **python-dotenv**: Environment variable management
 - **fuzzywuzzy**: Fuzzy string matching for tags
 - **rich**: Beautiful CLI output formatting
-- **click**: Command-line interface framework (optional)
+- **click**: Command-line interface framework
