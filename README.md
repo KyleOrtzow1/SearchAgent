@@ -1,6 +1,10 @@
 # MTG Card Search Agent
 
-A multi-agent system for finding Magic: The Gathering cards using natural language queries. Built with PydanticAI and powered by OpenAI.
+A multi-agent system for finding Magic: The Gathering cards using natural language queries. Built with PydanticAI, powered by OpenAI's GPT models, and integrated with the Scryfall API for comprehensive MTG card data.
+
+<div align="center">
+  <img src="assets/mtg-search.gif" alt="MTG Search Demo" />
+</div>
 
 ## Features
 
@@ -57,18 +61,34 @@ A multi-agent system for finding Magic: The Gathering cards using natural langua
 
 ### CLI Interface (Recommended)
 
+**After installation via pip:**
 ```bash
 # Interactive mode
-python examples/cli_demo.py
+mtg-search
 
 # Single search
-python examples/cli_demo.py "red creature with haste"
+mtg-search "red creature with haste"
 
 # With streaming enabled (real-time AI thinking)
-python examples/cli_demo.py --streaming "blue counterspell"
+mtg-search --streaming "blue counterspell"
 
 # Show example queries
-python examples/cli_demo.py --examples
+mtg-search --examples
+```
+
+**Development mode (from source):**
+```bash
+# Interactive mode
+python -m mtg_search_agent.cli
+
+# Single search
+python -m mtg_search_agent.cli "red creature with haste"
+
+# With streaming enabled (real-time AI thinking)
+python -m mtg_search_agent.cli --streaming "blue counterspell"
+
+# Show example queries
+python -m mtg_search_agent.cli --examples
 ```
 
 ### Python API
@@ -131,6 +151,7 @@ Common event types you can handle:
 SearchAgent/
 ├── src/mtg_search_agent/   # Main package
 │   ├── __init__.py        # Package entry point
+│   ├── cli.py             # Command-line interface
 │   ├── config.py          # Configuration and API settings
 │   ├── orchestrator.py    # Main search coordination logic
 │   ├── events.py          # Event handling system
@@ -145,8 +166,7 @@ SearchAgent/
 │   └── agents/           # AI agents
 │       ├── query_agent.py # Natural language → Scryfall query
 │       └── evaluation_agent.py # Card relevance scoring
-├── examples/             # Usage examples
-│   └── cli_demo.py      # Interactive CLI demo
+├── tests/               # Test suite
 ├── pyproject.toml       # Package configuration
 └── README.md           # This file
 ```
@@ -201,9 +221,12 @@ echo "OPENAI_API_KEY=your_api_key_here" > .env
 ### Running Tests
 
 ```bash
-# Run the CLI demo to test functionality
-python examples/cli_demo.py --examples
-python examples/cli_demo.py "test query"
+# Run the CLI to test functionality
+python -m mtg_search_agent.cli --examples
+python -m mtg_search_agent.cli "test query"
+
+# Run unit tests
+pytest
 ```
 
 ### Project Architecture
