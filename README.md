@@ -3,7 +3,7 @@
 A multi-agent system for finding Magic: The Gathering cards using natural language queries. Built with PydanticAI, powered by OpenAI's GPT models, and integrated with the Scryfall API for comprehensive MTG card data.
 
 <div align="center">
-  <img src="assets/mtg-search.gif" alt="MTG Search Demo" />
+  <img src="assets/mtg-search2.gif" alt="MTG Search Demo" />
 </div>
 
 ## Features
