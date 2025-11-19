@@ -35,7 +35,6 @@ from mtg_search_agent.events import (
     SearchStartedEvent,
     IterationStartedEvent,
     QueryGenerationStartedEvent,
-    QueryStreamingProgressEvent,
     QueryGeneratedEvent,
     ScryfallPaginationStartedEvent,
     ScryfallPageFetchedEvent,
@@ -43,7 +42,6 @@ from mtg_search_agent.events import (
     CardsFoundEvent,
     EvaluationStrategySelectedEvent,
     EvaluationStartedEvent,
-    EvaluationStreamingProgressEvent,
     EvaluationParallelMetricsEvent,
     EvaluationBatchProgressEvent,
     EvaluationCompletedEvent,
@@ -62,8 +60,7 @@ console = Console()
 class MTGSearchCLI:
     """Main CLI application class with animated status display"""
     
-    def __init__(self, streaming: bool = False):
-        self.streaming = streaming
+    def __init__(self):
         self.orchestrator = None
         self.live_display = None
         self.layout = None
@@ -88,6 +85,7 @@ class MTGSearchCLI:
         self._status_throttle_secs = 0.5
         self._last_query_stream_text = ""
         self._last_eval_progress_printed = -1
+
     def _update_status(self, status_text: str):
         """Update the current status display"""
         # Print only when it changes to reduce noise
@@ -111,7 +109,7 @@ class MTGSearchCLI:
             return False
             
         try:
-            self.orchestrator = SearchOrchestrator(enable_streaming=self.streaming)
+            self.orchestrator = SearchOrchestrator()
             self._setup_event_handlers()
             return True
         except Exception as e:
@@ -219,17 +217,6 @@ class MTGSearchCLI:
         def on_query_generation_started(event: QueryGenerationStartedEvent):
             self._update_status("[blue]Generating search query...[/blue]")
         
-        def on_query_streaming_progress(event: QueryStreamingProgressEvent):
-            query = getattr(event, 'partial_query', '')
-            explanation = getattr(event, 'partial_explanation', '')
-            if query:
-                # Throttle frequent updates and avoid repetition; show full query
-                now = time.time()
-                if (now - self._last_status_time) >= self._status_throttle_secs or query != self._last_query_stream_text:
-                    self._update_status(f"[blue]Building query: {query}[/blue]")
-                    self._last_status_time = now
-                    self._last_query_stream_text = query
-        
         def on_scryfall_pagination_started(event: ScryfallPaginationStartedEvent):
             query = event.query
             self._update_status(f"[cyan]Fetching complete results for: {query}[/cyan]")
@@ -249,23 +236,6 @@ class MTGSearchCLI:
             if limited:
                 status_text += " [yellow](limited by max results)[/yellow]"
             self._update_status(status_text)
-        
-        def on_evaluation_streaming_progress(event: EvaluationStreamingProgressEvent):
-            evaluated = event.cards_evaluated
-            total = event.total_cards
-            progress = getattr(event, 'progress_percent', 0)
-            batch_info = getattr(event, 'batch_index', None), getattr(event, 'total_batches', None)
-            
-            if batch_info[0] is not None and batch_info[1] is not None:
-                batch_text = f"Batch {batch_info[0] + 1}/{batch_info[1]}: "
-            else:
-                batch_text = ""
-            
-            score_text = ""
-            if getattr(event, 'current_score', None):
-                score_text = f" (score: {event.current_score:.1f})"
-            
-            self._update_status(f"[yellow]{batch_text}Evaluating {evaluated}/{total} cards ({progress:.0f}%){score_text}[/yellow]")
         
         def on_error_occurred(event: ErrorOccurredEvent):
             error_type = getattr(event, 'error_type', 'unknown')
@@ -307,7 +277,6 @@ class MTGSearchCLI:
         ev.on("search_started", on_search_started)
         ev.on("iteration_started", on_iteration_started)
         ev.on("query_generation_started", on_query_generation_started)
-        ev.on("query_streaming_progress", on_query_streaming_progress)
         ev.on("query_generated", on_query_generated)
         ev.on("scryfall_pagination_started", on_scryfall_pagination_started)
         ev.on("scryfall_page_fetched", on_scryfall_page_fetched)
@@ -315,7 +284,6 @@ class MTGSearchCLI:
         ev.on("cards_found", on_cards_found)
         ev.on("evaluation_strategy_selected", on_evaluation_strategy_selected)
         ev.on("evaluation_started", on_evaluation_started)
-        ev.on("evaluation_streaming_progress", on_evaluation_streaming_progress)
         ev.on("evaluation_parallel_metrics", on_evaluation_parallel_metrics)
         ev.on("evaluation_batch_progress", on_evaluation_progress)
         ev.on("evaluation_completed", on_evaluation_completed)
@@ -443,7 +411,7 @@ class MTGSearchCLI:
                     continue
                 
                 # Perform search (progress is handled by events now)
-                result = await self.orchestrator.search(query)
+                result = await self.orchestrator.run(query)
                 
                 # Wait for any final status updates to complete
                 import asyncio
@@ -476,7 +444,7 @@ class MTGSearchCLI:
         """Perform a single search and display results"""
         try:
             # Perform search (progress is handled by events now)
-            result = await self.orchestrator.search(query)
+            result = await self.orchestrator.run(query)
             
             # Wait for any final status updates to complete
             import asyncio
@@ -525,7 +493,6 @@ def main():
 Examples:
   %(prog)s                                    # Interactive mode
   %(prog)s "red creature with haste"          # Single search
-  %(prog)s --streaming "blue counterspell"    # Enable AI streaming
   %(prog)s --examples                         # Show example queries
         """
     )
@@ -535,13 +502,6 @@ Examples:
         nargs="?",
         help="Card search query (if not provided, enters interactive mode)"
     )
-    
-    parser.add_argument(
-        "--streaming",
-        action="store_true",
-        help="Enable real-time AI streaming (uses more tokens)"
-    )
-    
     
     parser.add_argument(
         "--examples",
@@ -564,7 +524,7 @@ Examples:
         return
     
     async def run_cli():
-        cli = MTGSearchCLI(args.streaming)
+        cli = MTGSearchCLI()
         
         # Show banner
         cli.show_banner()
@@ -572,10 +532,6 @@ Examples:
         # Initialize
         if not await cli.initialize():
             sys.exit(1)
-        
-        # Show streaming mode info
-        if args.streaming:
-            console.print("[dim]Streaming mode enabled - real-time AI thinking[/dim]\n")
         
         # Run appropriate mode
         if args.query:

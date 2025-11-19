@@ -76,7 +76,6 @@ class IterationStartedEvent(BaseEvent):
         return "iteration_started"
 
 
-
 class IterationCompletedEvent(BaseEvent):
     def __init__(self, iteration: int, score: float, is_best: bool, satisfied: bool, duration: str):
         super().__init__()
@@ -105,19 +104,6 @@ class QueryGenerationStartedEvent(BaseEvent):
         return "query_generation_started"
 
 
-
-class QueryStreamingProgressEvent(BaseEvent):
-    def __init__(self, partial_query: str, partial_explanation: str):
-        super().__init__()
-        self.partial_query = partial_query
-        self.partial_explanation = partial_explanation
-    
-    @property
-    def event_type(self) -> str:
-        return "query_streaming_progress"
-
-
-
 class QueryGeneratedEvent(BaseEvent):
     def __init__(self, scryfall_query: str, explanation: str, iteration: int):
         super().__init__()
@@ -143,7 +129,6 @@ class ScryfallSearchStartedEvent(BaseEvent):
         return "scryfall_search_started"
 
 
-
 class ScryfallPaginationStartedEvent(BaseEvent):
     def __init__(self, query: str, estimated_total: Optional[int] = None):
         super().__init__()
@@ -153,7 +138,6 @@ class ScryfallPaginationStartedEvent(BaseEvent):
     @property
     def event_type(self) -> str:
         return "scryfall_pagination_started"
-
 
 
 class ScryfallPageFetchedEvent(BaseEvent):
@@ -170,7 +154,6 @@ class ScryfallPageFetchedEvent(BaseEvent):
         return "scryfall_page_fetched"
 
 
-
 class ScryfallPaginationCompletedEvent(BaseEvent):
     def __init__(self, total_cards: int, pages_fetched: int, limited_by_max: bool):
         super().__init__()
@@ -181,7 +164,6 @@ class ScryfallPaginationCompletedEvent(BaseEvent):
     @property
     def event_type(self) -> str:
         return "scryfall_pagination_completed"
-
 
 
 class CardsFoundEvent(BaseEvent):
@@ -197,11 +179,6 @@ class CardsFoundEvent(BaseEvent):
         return "cards_found"
 
 
-# New: stream card IDs as they are fetched from Scryfall
- 
-
-
-# New: stream full Card models as they are fetched from Scryfall
 class ScryfallCardsFetchedEvent(BaseEvent):
     def __init__(self, cards: List["Card"], page: Optional[int] = None, total_received: Optional[int] = None):
         super().__init__()
@@ -244,7 +221,6 @@ class CacheAnalyzedEvent(BaseEvent):
         return "cache_analyzed"
 
 
-
 class EvaluationStrategySelectedEvent(BaseEvent):
     def __init__(self, strategy: str, card_count: int, batch_size: Optional[int] = None, 
                  total_batches: Optional[int] = None, reason: Optional[str] = None):
@@ -260,7 +236,6 @@ class EvaluationStrategySelectedEvent(BaseEvent):
         return "evaluation_strategy_selected"
 
 
-
 class EvaluationStartedEvent(BaseEvent):
     def __init__(self, card_count: int, batch_size: int, parallel: bool):
         super().__init__()
@@ -271,27 +246,6 @@ class EvaluationStartedEvent(BaseEvent):
     @property
     def event_type(self) -> str:
         return "evaluation_started"
-
-
-
-class EvaluationStreamingProgressEvent(BaseEvent):
-    def __init__(self, cards_evaluated: int, total_cards: int, current_score: Optional[float] = None, 
-                 batch_info: Optional[tuple] = None):
-        super().__init__()
-        self.cards_evaluated = cards_evaluated
-        self.total_cards = total_cards
-        self.progress_percent = (cards_evaluated / total_cards) * 100 if total_cards > 0 else 0
-        self.current_score = current_score
-        if batch_info:
-            self.batch_index, self.total_batches = batch_info
-        else:
-            self.batch_index = None
-            self.total_batches = None
-    
-    @property
-    def event_type(self) -> str:
-        return "evaluation_streaming_progress"
-
 
 
 class EvaluationBatchProgressEvent(BaseEvent):
@@ -307,7 +261,6 @@ class EvaluationBatchProgressEvent(BaseEvent):
         return "evaluation_batch_progress"
 
 
-
 class EvaluationParallelMetricsEvent(BaseEvent):
     def __init__(self, total_batches: int, elapsed_time: float, time_saved: Optional[float] = None, 
                  estimated_sequential: Optional[float] = None):
@@ -320,7 +273,6 @@ class EvaluationParallelMetricsEvent(BaseEvent):
     @property
     def event_type(self) -> str:
         return "evaluation_parallel_metrics"
-
 
 
 class EvaluationCompletedEvent(BaseEvent):

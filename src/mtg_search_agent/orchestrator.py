@@ -19,6 +19,7 @@ from .events import (
     IterationStartedEvent, QueryGeneratedEvent, ScryfallSearchStartedEvent,
     CardsFoundEvent, CacheAnalyzedEvent, EvaluationStartedEvent,
     EvaluationCompletedEvent, IterationCompletedEvent,
+    EvaluationStrategySelectedEvent
 )
 
 
@@ -32,153 +33,123 @@ def format_time_elapsed(start_time: float) -> str:
     else:
         minutes = int(elapsed // 60)
         seconds = elapsed % 60
-        return f"{minutes}m {seconds:.1f}s"
+        return f"{minutes}m {seconds:.0f}s"
 
 
 class SearchOrchestrator:
     """Main orchestrator that coordinates the search agents"""
     
-    def __init__(self, enable_streaming: bool = False):
+    def __init__(self):
         self.events = SearchEventEmitter()
         self.query_agent = QueryAgent(event_emitter=self.events)
         self.evaluation_agent = EvaluationAgent(event_emitter=self.events)
         self.scryfall_api = ScryfallAPI(event_emitter=self.events)
         self.max_loops = MAX_SEARCH_LOOPS
         self.card_cache: Dict[str, CardScore] = {}
-        self.enable_streaming = enable_streaming
-    
-    async def search(self, natural_language_request: str) -> EvaluationResult:
-        """
-        Main search loop that coordinates between query and evaluation agents
         
-        Args:
-            natural_language_request: User's natural language request for cards
-            
-        Returns:
-            Final evaluation result with best cards found
+    async def run(self, natural_language_request: str) -> EvaluationResult:
+        """
+        Execute the search process
         """
         start_time = time.time()
-        session_state = self._initialize_search_session(natural_language_request)
         
-        # Emit search started event using new streamlined API
+        # Initialize session state
+        session_state = {
+            "previous_queries": [],
+            "feedback": None,
+            "best_result": None,
+            "history": []
+        }
+        
+        # Emit search started event
         self.events.emit(SearchStartedEvent(natural_language_request, self.max_loops))
         
-        # Execute main search loop
-        evaluation = None
-        for iteration in range(1, self.max_loops + 1):
+        final_result = None
+        
+        for i in range(self.max_loops):
+            iteration = i + 1
             iteration_start = time.time()
             
             # Emit iteration started event
-            self.events.emit(IterationStartedEvent(iteration, self.max_loops, format_time_elapsed(start_time)))
+            self.events.emit(IterationStartedEvent(
+                iteration, 
+                self.max_loops, 
+                format_time_elapsed(start_time)
+            ))
             
-            # Execute search iteration steps
+            # 1. Generate Query
             query = await self._generate_query_step(natural_language_request, session_state, iteration)
-            search_result = self._execute_scryfall_search_step(query, iteration)
+            session_state["previous_queries"].append(query.query)
             
-            if not search_result.cards:
-                session_state["feedback"] = "No cards found with this query. Try different search terms or broader criteria."
-                continue
+            # 2. Search Scryfall
+            # ScryfallAPI is synchronous and takes a SearchQuery object
+            search_result = self.scryfall_api.search_cards(query)
+            cards = search_result.cards
             
-            new_cards, cached_scores = self._analyze_cache_step(search_result.cards)
-            
-            if new_cards:
-                new_evaluation = await self._evaluate_cards_step(
-                    natural_language_request, new_cards, iteration, 
-                    session_state["previous_queries"], len(search_result.cards)
+            # 3. Evaluate Cards
+            if cards:
+                evaluation = await self._evaluate_cards_step(
+                    natural_language_request, 
+                    cards, 
+                    iteration, 
+                    session_state["previous_queries"],
+                    len(cards)
                 )
-                # Cache the new evaluations
-                for scored_card in new_evaluation.scored_cards:
-                    self.card_cache[scored_card.card.id] = scored_card
+                
+                # Aggregate results with cache
+                final_result = self._aggregate_iteration_results(
+                    list(self.card_cache.values()),
+                    evaluation,
+                    iteration
+                )
             else:
-                new_evaluation = self._create_empty_evaluation(iteration)
+                # No cards found, create empty evaluation
+                final_result = self._create_empty_evaluation(iteration)
             
-            # Aggregate results and check continuation
-            evaluation = self._aggregate_iteration_results(cached_scores, new_evaluation, iteration)
-            should_stop = self._summarize_iteration_results(evaluation, session_state, iteration_start)
+            # 4. Summarize and Decide
+            should_stop = self._summarize_iteration_results(
+                final_result, 
+                session_state, 
+                iteration_start
+            )
             
             if should_stop:
                 break
-            
-            if iteration == self.max_loops:
-                break
         
-        total_time = format_time_elapsed(start_time)
+        # Create final result with top cards from cache
+        final_result = self._create_final_result_with_top_cards(final_result)
         
-        # Create final result with top N highest scoring cards from entire search
-        final_result = self._create_final_result_with_top_cards(session_state["best_result"] or evaluation)
-        
-        # Emit search completed event using new streamlined API
+        # Emit search completed event
+        duration = format_time_elapsed(start_time)
         self.events.emit(SearchCompletedEvent(
             len(final_result.scored_cards),
             final_result.average_score,
-            final_result.iteration_count,
-            total_time
+            iteration,
+            duration
         ))
         
-        return final_result
-    
-    def _initialize_search_session(self, natural_language_request: str) -> Dict:
-        """Initialize search session state"""
-        # Clear cache at start of new search session
-        self.card_cache.clear()
+        # Display final results
+        self.print_final_results(final_result)
         
-        return {
-            "previous_queries": [],
-            "feedback": None,
-            "best_result": None
-        }
-    
+        return final_result
+
     async def _generate_query_step(self, natural_language_request: str, session_state: Dict, iteration: int) -> SearchQuery:
         """Execute query generation step"""
         query = await self.query_agent.generate_query(
             natural_language_request=natural_language_request,
             previous_queries=session_state["previous_queries"],
-            feedback=session_state["feedback"],
-            use_streaming=self.enable_streaming
+            feedback=session_state["feedback"]
         )
-
+        
         # Emit query generated event
-        self.events.emit(QueryGeneratedEvent(query.query, query.explanation or "", iteration))
-
-        # Store the query
-        session_state["previous_queries"].append(query.query)
+        self.events.emit(QueryGeneratedEvent(
+            query.query,
+            query.explanation,
+            iteration
+        ))
+        
         return query
-    
-    def _execute_scryfall_search_step(self, query: SearchQuery, iteration: int):
-        """Execute Scryfall search step"""
-        # Emit scryfall search started event
-        self.events.emit(ScryfallSearchStartedEvent(query.query))
-        
-        search_result = self.scryfall_api.search_cards(query)
-        
-        # Emit cards found event
-        if search_result.cards:
-            paginated = search_result.total_cards > len(search_result.cards) if search_result.total_cards else False
-            self.events.emit(CardsFoundEvent(
-                len(search_result.cards),
-                search_result.total_cards or len(search_result.cards),
-                paginated,
-                iteration
-            ))
-        
-        return search_result
-    
-    def _analyze_cache_step(self, cards: List[Card]) -> Tuple[List[Card], List[CardScore]]:
-        """Analyze cache and separate new cards from cached cards"""
-        new_cards = []
-        cached_scores = []
 
-        for card in cards:
-            if card.id in self.card_cache:
-                cached_scores.append(self.card_cache[card.id])
-            else:
-                new_cards.append(card)
-
-        # Emit cache analyzed event
-        self.events.emit(CacheAnalyzedEvent(len(new_cards), len(cached_scores)))
-
-        return new_cards, cached_scores
-    
     async def _evaluate_cards_step(
         self, 
         natural_language_request: str, 
@@ -193,22 +164,14 @@ class SearchOrchestrator:
         self.events.emit(EvaluationStartedEvent(len(cards), batch_size, ENABLE_PARALLEL_EVALUATION))
 
         # Evaluate cards
-        start_eval_time = time.time()
-
-        # Let the evaluation agent choose the best strategy
         lightweight_evaluation = await self.evaluation_agent.evaluate_cards(
             natural_language_request=natural_language_request,
             cards=cards,
             iteration_count=iteration,
             previous_queries=previous_queries,
-            use_streaming=self.enable_streaming,
             total_cards=total_cards
         )
-
-        # Emit evaluation completed event
-        eval_duration = format_time_elapsed(start_eval_time)
-        self.events.emit(EvaluationCompletedEvent(len(cards), lightweight_evaluation.average_score, eval_duration))
-
+        
         # Convert lightweight result to full result
         return self._convert_lightweight_to_full_result(lightweight_evaluation, cards)
     
@@ -228,8 +191,12 @@ class SearchOrchestrator:
         iteration: int
     ) -> EvaluationResult:
         """Aggregate cached and new evaluation results"""
-        # Combine cached and new evaluations
-        all_scored_cards = cached_scores + new_evaluation.scored_cards
+        # Update cache with new scores
+        for scored_card in new_evaluation.scored_cards:
+            self.card_cache[scored_card.card.id] = scored_card
+            
+        # Combine cached and new evaluations (re-fetching from cache to get everything)
+        all_scored_cards = list(self.card_cache.values())
         
         if all_scored_cards:
             combined_average = sum(sc.score for sc in all_scored_cards) / len(all_scored_cards)

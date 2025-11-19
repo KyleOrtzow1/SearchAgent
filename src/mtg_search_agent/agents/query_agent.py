@@ -9,13 +9,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+from typing import List, Optional
+from pydantic_ai import Agent, RunContext
+from pydantic_ai.models.openai import OpenAIResponsesModel
+import sys
+import os
+from dotenv import load_dotenv
+
+# Load environment variables at module level
+load_dotenv()
+
+
 from ..models.search import SearchQuery, TagSuggestion
 from ..tools.tag_search import TagSearchTool
 
 # Import new event classes
 from ..events import (
     QueryGenerationStartedEvent,
-    QueryStreamingProgressEvent,
     ErrorOccurredEvent,
 )
 
@@ -102,50 +112,9 @@ class QueryAgent:
         
         return "\n\n".join(prompt_parts)
     
-    def _display_streaming_progress(self, partial_query) -> None:
+    async def _execute_query(self, prompt: str) -> SearchQuery:
         """
-        Display streaming progress for query generation
-        
-        Args:
-            partial_query: Partial query object with query and explanation attributes
-        """
-        if self.events:
-            # Emit streaming progress event using new API
-            query = getattr(partial_query, 'query', '') or ''
-            explanation = getattr(partial_query, 'explanation', '') or ''
-            self.events.emit(QueryStreamingProgressEvent(query, explanation))
-    
-    async def _execute_with_streaming(self, prompt: str) -> SearchQuery:
-        """
-        Execute query generation with streaming enabled
-        
-        Args:
-            prompt: Complete prompt string
-            
-        Returns:
-            SearchQuery object with Scryfall syntax
-        """
-        # Emit query generation started event
-        if self.events:
-            self.events.emit(QueryGenerationStartedEvent("", 0))  # No request/iteration context here
-        
-        try:
-            async with query_agent.run_stream(prompt, deps=self.deps) as result:
-                # Stream structured output as it's being built
-                async for partial_query in result.stream():
-                    self._display_streaming_progress(partial_query)
-            
-            return await result.get_output()
-            
-        except Exception as e:
-            # Emit error event instead of printing
-            if self.events:
-                self.events.emit(ErrorOccurredEvent("query_streaming_error", str(e), {"fallback": "non_streaming"}))
-            return await self._execute_without_streaming(prompt)
-    
-    async def _execute_without_streaming(self, prompt: str) -> SearchQuery:
-        """
-        Execute query generation without streaming
+        Execute query generation
         
         Args:
             prompt: Complete prompt string
@@ -164,8 +133,7 @@ class QueryAgent:
         self, 
         natural_language_request: str, 
         previous_queries: List[str] = None,
-        feedback: Optional[str] = None,
-        use_streaming: bool = False
+        feedback: Optional[str] = None
     ) -> SearchQuery:
         """
         Generate a Scryfall query from natural language request
@@ -174,14 +142,10 @@ class QueryAgent:
             natural_language_request: The user's natural language request
             previous_queries: List of previously attempted queries
             feedback: Feedback from evaluation agent on how to improve
-            use_streaming: Whether to use streaming mode for real-time progress
             
         Returns:
             SearchQuery object with Scryfall syntax
         """
         prompt = self._build_prompt(natural_language_request, previous_queries, feedback)
         
-        if use_streaming:
-            return await self._execute_with_streaming(prompt)
-        else:
-            return await self._execute_without_streaming(prompt)
+        return await self._execute_query(prompt)

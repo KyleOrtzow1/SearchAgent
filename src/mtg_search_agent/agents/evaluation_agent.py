@@ -16,7 +16,6 @@ from ..config import ENABLE_PARALLEL_EVALUATION, EVALUATION_BATCH_SIZE, TOP_CARD
 
 # Import new event classes
 from ..events import (
-    EvaluationStreamingProgressEvent,
     ErrorOccurredEvent,
     EvaluationStrategySelectedEvent,
     EvaluationParallelMetricsEvent,
@@ -303,75 +302,37 @@ class EvaluationAgent:
     async def _execute_agent(
         self,
         prompt: str,
-        use_streaming: bool,
         cards_count: int,
         batch_info: tuple = None
     ) -> LightweightAgentResult:
         """
-        Execute the evaluation agent with either streaming or direct generation
+        Execute the evaluation agent with direct generation
         
         Args:
             prompt: Evaluation prompt to send to agent
-            use_streaming: Whether to use streaming mode
             cards_count: Number of cards being evaluated
             batch_info: Optional tuple of (batch_index, total_batches) for batch evaluation
             
         Returns:
             Agent result with scored cards and feedback
         """
-        if use_streaming:
-            try:
-                async with lightweight_evaluation_agent.run_stream(prompt) as result:
-                    # Stream structured output as it's being built
-                    cards_evaluated = 0
-                    async for partial_evaluation in result.stream():
-                        # Show evaluation progress via events
-                        if hasattr(partial_evaluation, 'scored_cards'):
-                            current_cards = len(partial_evaluation.scored_cards)
-                            if current_cards > cards_evaluated:
-                                cards_evaluated = current_cards
-                                
-                                # Get current score if available
-                                current_score = None
-                                if hasattr(partial_evaluation, 'average_score') and partial_evaluation.average_score > 0:
-                                    current_score = partial_evaluation.average_score
-                                
-                                # Emit streaming progress event
-                                if self.events:
-                                    self.events.emit(EvaluationStreamingProgressEvent(
-                                        cards_evaluated, cards_count, current_score, batch_info
-                                    ))
-                
-                return await result.get_output()
-                
-            except Exception as e:
-                # Emit error event instead of printing
+        try:
+            result = await lightweight_evaluation_agent.run(prompt)
+            return result.output
+        except Exception as e:
+            if batch_info:
+                # Emit error event for batch failure
                 if self.events:
                     error_context = {"batch_info": batch_info, "cards_count": cards_count}
-                    self.events.emit(ErrorOccurredEvent("evaluation_streaming_error", str(e), error_context))
+                    self.events.emit(ErrorOccurredEvent("evaluation_batch_error", str(e), error_context))
                 
-                # Fallback to non-streaming
-                result = await lightweight_evaluation_agent.run(prompt)
-                return result.output
-        else:
-            # Use direct generation without streaming
-            try:
-                result = await lightweight_evaluation_agent.run(prompt)
-                return result.output
-            except Exception as e:
-                if batch_info:
-                    # Emit error event for batch failure
-                    if self.events:
-                        error_context = {"batch_info": batch_info, "cards_count": cards_count}
-                        self.events.emit(ErrorOccurredEvent("evaluation_batch_error", str(e), error_context))
-                    
-                    # Return empty result for this batch to prevent total failure
-                    return LightweightAgentResult(
-                        scored_cards=[],
-                        feedback_for_query_agent=f"Batch {batch_info[0] + 1} failed to evaluate"
-                    )
-                else:
-                    raise e  # Re-raise for bulk evaluation
+                # Return empty result for this batch to prevent total failure
+                return LightweightAgentResult(
+                    scored_cards=[],
+                    feedback_for_query_agent=f"Batch {batch_info[0] + 1} failed to evaluate"
+                )
+            else:
+                raise e  # Re-raise for bulk evaluation
     
     async def evaluate_cards(
         self,
@@ -379,7 +340,6 @@ class EvaluationAgent:
         cards: List[Card],
         iteration_count: int,
         previous_queries: List[str] = None,
-        use_streaming: bool = False,
         total_cards: int = None
     ) -> LightweightEvaluationResult:
         """
@@ -413,7 +373,6 @@ class EvaluationAgent:
                 cards=cards,
                 iteration_count=iteration_count,
                 previous_queries=previous_queries,
-                use_streaming=use_streaming,
                 total_cards=total_cards or len(cards)
             )
         else:
@@ -436,7 +395,6 @@ class EvaluationAgent:
                 cards=cards,
                 iteration_count=iteration_count,
                 previous_queries=previous_queries,
-                use_streaming=use_streaming,
                 total_cards=total_cards or len(cards)
             )
 
@@ -446,7 +404,6 @@ class EvaluationAgent:
         cards: List[Card],
         iteration_count: int,
         previous_queries: List[str] = None,
-        use_streaming: bool = False,
         total_cards: int = None
     ) -> LightweightEvaluationResult:
         """
@@ -466,7 +423,6 @@ class EvaluationAgent:
         # Execute agent using helper
         agent_result = await self._execute_agent(
             prompt=prompt,
-            use_streaming=use_streaming,
             cards_count=len(cards)
         )
         
@@ -493,8 +449,7 @@ class EvaluationAgent:
         total_batches: int,
         total_cards: int,
         iteration_count: int,
-        previous_queries: List[str] = None,
-        use_streaming: bool = False
+        previous_queries: List[str] = None
     ) -> LightweightEvaluationResult:
         """
         Simplified batch evaluation method using helper functions
@@ -512,7 +467,6 @@ class EvaluationAgent:
         # Execute agent using helper with batch info
         agent_result = await self._execute_agent(
             prompt=prompt,
-            use_streaming=use_streaming,
             cards_count=len(card_batch),
             batch_info=(batch_index, total_batches)
         )
@@ -538,7 +492,6 @@ class EvaluationAgent:
         cards: List[Card],
         iteration_count: int,
         previous_queries: List[str] = None,
-        use_streaming: bool = False,
         total_cards: int = None
     ) -> LightweightEvaluationResult:
         """
@@ -569,8 +522,7 @@ class EvaluationAgent:
                 total_batches=total_batches,
                 total_cards=total_cards,
                 iteration_count=iteration_count,
-                previous_queries=previous_queries,
-                use_streaming=use_streaming
+                previous_queries=previous_queries
             )
             for i, batch in enumerate(batches)
         ]
